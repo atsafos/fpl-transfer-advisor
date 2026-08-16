@@ -35,6 +35,30 @@ SQUAD_RULES = {1: 2, 2: 5, 3: 5, 4: 3}  # required numbers per position
 MAX_PER_TEAM = 3
 MIN_CANDIDATES = 3  # always try to show at least this many replacement options
 
+# Scoring presets. These weights are adjusted again by the user's risk appetite.
+STRATEGY_WEIGHTS = {
+    "Balanced": {
+        "form": 0.12, "ep": 0.20, "fixtures": 0.15, "availability": 0.10,
+        "underlying": 0.15, "momentum": 0.06, "minutes": 0.12, "value": 0.10,
+    },
+    "Short-term (next 3 GWs)": {
+        "form": 0.12, "ep": 0.24, "fixtures": 0.22, "availability": 0.10,
+        "underlying": 0.12, "momentum": 0.05, "minutes": 0.10, "value": 0.05,
+    },
+    "Long-term hold": {
+        "form": 0.10, "ep": 0.16, "fixtures": 0.14, "availability": 0.10,
+        "underlying": 0.16, "momentum": 0.04, "minutes": 0.16, "value": 0.14,
+    },
+    "Differential": {
+        "form": 0.10, "ep": 0.17, "fixtures": 0.14, "availability": 0.10,
+        "underlying": 0.18, "momentum": 0.06, "minutes": 0.10, "value": 0.08,
+    },
+    "Protect rank": {
+        "form": 0.13, "ep": 0.20, "fixtures": 0.14, "availability": 0.12,
+        "underlying": 0.10, "momentum": 0.08, "minutes": 0.15, "value": 0.08,
+    },
+}
+
 FDR_COLORS = {1: "#01FC7A", 2: "#6DFFA6", 3: "#E7E7E7", 4: "#FF8F8F", 5: "#FF1D1D"}
 
 STATUS_LABELS = {
@@ -256,38 +280,114 @@ def team_fixture_difficulty(team_id, fixtures, from_event, n=5):
     return avg, "  ".join(labels)
 
 
-def player_score(p, avg_fdr, understat_match, total_players):
+def minutes_security_score(p):
+    """0-5 score: rewards players who reliably accumulate minutes and starts."""
+    minutes = float(p.get("minutes", 0) or 0)
+    starts = float(p.get("starts", 0) or 0)
+    appearances = float(p.get("starts", 0) or 0) + float(p.get("sub_appearances", 0) or 0)
+
+    # FPL does not always expose sub_appearances, so use starts as the fallback denominator.
+    denom = appearances if appearances > 0 else starts
+    mins_per_app = minutes / denom if denom > 0 else 0
+
+    if mins_per_app >= 80:
+        return 5.0
+    if mins_per_app >= 70:
+        return 4.2
+    if mins_per_app >= 60:
+        return 3.4
+    if mins_per_app >= 45:
+        return 2.4
+    if minutes > 0:
+        return 1.4
+    return 0.5
+
+
+def value_score(p):
+    """0-5 score based on points per game relative to current price."""
+    price = float(p.get("now_cost", 0) or 0) / 10
+    ppg = float(p.get("points_per_game", 0) or 0)
+    if price <= 0:
+        return 0.0
+    return max(0.0, min(5.0, (ppg / price) * 7.5))
+
+
+def ownership_strategy_adjustment(p, strategy):
+    """Small ownership tilt: differentials favour low ownership; protect-rank favours template picks."""
+    own = float(p.get("selected_by_percent", 0) or 0)
+    if strategy == "Differential":
+        if own < 5:
+            return 0.6
+        if own < 10:
+            return 0.3
+        if own > 25:
+            return -0.3
+    elif strategy == "Protect rank":
+        if own >= 20:
+            return 0.5
+        if own >= 10:
+            return 0.25
+        if own < 5:
+            return -0.2
+    return 0.0
+
+
+def player_score(p, avg_fdr, understat_match, total_players, strategy="Balanced", risk_appetite=3):
     """Composite desirability score for ranking transfer-in candidates.
-    Blends official FPL signals (form, expected points, fixture ease,
-    availability) with two supplementary layers:
-      - Understat underlying stats (xG90 + xA90) - rewards players creating
-        more than raw points suggest, the classic 'buy before the points come'
-        signal content creators lean on.
-      - Ownership momentum from official transfer-in/out data this GW.
+
+    Blends official FPL signals with Understat xG/xA, minutes security, value,
+    ownership momentum and a user-selected strategy/risk profile.
     """
-    form = float(p["form"] or 0)
-    ep_next = float(p["ep_next"] or 0)
-    availability = 1.0 if p["status"] == "a" else 0.3 if p["status"] == "d" else 0.0
-    fixture_ease = (6 - avg_fdr) if avg_fdr is not None else 3  # invert FDR (1=easy..5=hard)
+    form = float(p.get("form", 0) or 0)
+    ep_next = float(p.get("ep_next", 0) or 0)
+    availability = 5.0 if p.get("status") == "a" else 1.5 if p.get("status") == "d" else 0.0
+    fixture_ease = (6 - avg_fdr) if avg_fdr is not None else 3
 
     understat_signal = 0.0
     if understat_match and float(understat_match.get("time", 0) or 0) > 0:
         mins = float(understat_match["time"])
         xg90 = float(understat_match.get("xG", 0)) / mins * 90
         xa90 = float(understat_match.get("xA", 0)) / mins * 90
-        understat_signal = min(5.0, (xg90 + xa90) * 10)  # scale to a roughly 0-5 range
+        understat_signal = min(5.0, (xg90 + xa90) * 10)
 
     momentum_score, _ = ownership_momentum(p, total_players)
+    momentum_norm = max(0.0, min(5.0, 2.5 + momentum_score / 2))
+    minutes_score = minutes_security_score(p)
+    val_score = value_score(p)
 
-    score = (
-        (form * 0.30)
-        + (ep_next * 0.25)
-        + (fixture_ease * 0.15)
-        + (availability * 5 * 0.10)
-        + (understat_signal * 0.12)
-        + (momentum_score * 0.08)
+    weights = STRATEGY_WEIGHTS.get(strategy, STRATEGY_WEIGHTS["Balanced"]).copy()
+
+    # Conservative risk settings reward secure minutes/availability; aggressive settings
+    # give slightly more room to underlying numbers and momentum.
+    risk_delta = (risk_appetite - 3) * 0.015
+    weights["underlying"] += risk_delta
+    weights["momentum"] += risk_delta / 2
+    weights["minutes"] -= risk_delta
+    weights["availability"] -= risk_delta / 2
+
+    raw = (
+        form * weights["form"]
+        + ep_next * weights["ep"]
+        + fixture_ease * weights["fixtures"]
+        + availability * weights["availability"]
+        + understat_signal * weights["underlying"]
+        + momentum_norm * weights["momentum"]
+        + minutes_score * weights["minutes"]
+        + val_score * weights["value"]
     )
-    return round(score, 2)
+    raw += ownership_strategy_adjustment(p, strategy)
+    return round(raw, 2)
+
+
+def confidence_label(score_delta, candidate):
+    """Simple explainable confidence label for a proposed transfer."""
+    status = candidate.get("status")
+    mins_score = minutes_security_score(candidate)
+    if score_delta >= 1.0 and status == "a" and mins_score >= 3.4:
+        return "HIGH"
+    if score_delta >= 0.4 and status in ("a", "d"):
+        return "MEDIUM"
+    return "LOW"
 
 
 def flag_reasons(p, avg_fdr):
@@ -321,6 +421,20 @@ with st.sidebar:
     run = st.button("Load / Refresh my squad", type="primary", use_container_width=True)
     st.divider()
     st.subheader("Settings")
+    strategy = st.selectbox(
+        "Transfer strategy",
+        ["Balanced", "Short-term (next 3 GWs)", "Long-term hold", "Differential", "Protect rank"],
+        index=0,
+        help="Changes how replacement candidates are weighted."
+    )
+    risk_appetite = st.slider(
+        "Risk appetite", 1, 5, 3,
+        help="1 = conservative (minutes/availability matter more); 5 = aggressive (upside/underlying stats matter more)."
+    )
+    reserve_bank = st.number_input(
+        "Keep in bank (£m)", min_value=0.0, max_value=5.0, value=0.0, step=0.1,
+        help="The adviser will avoid spending below this cash reserve."
+    )
     form_threshold = st.slider("Poor form threshold", 0.0, 5.0, 2.5, 0.5,
                                 help="Players with recent form below this are flagged.")
     fdr_threshold = st.slider("Tough fixtures threshold (avg FDR)", 2.0, 5.0, 3.8, 0.1,
@@ -404,6 +518,8 @@ for pick in picks_data["picks"]:
     p = players_by_id[pick["element"]]
     avg_fdr, fixture_str = team_fixture_difficulty(p["team"], fixtures, upcoming_event["id"], n=n_fixtures)
     reasons = flag_reasons({**p, "form": p["form"]}, avg_fdr)
+    current_understat = match_understat(p, by_full, by_last)
+    current_score = player_score(p, avg_fdr, current_understat, total_players_in_game, strategy, risk_appetite)
     # apply user thresholds (flag_reasons uses fixed defaults internally for form msg wording,
     # so re-check against sliders here for the "needs attention" flag)
     needs_attention = bool(reasons) or float(p["form"] or 0) < form_threshold or (avg_fdr is not None and avg_fdr >= fdr_threshold)
@@ -420,6 +536,8 @@ for pick in picks_data["picks"]:
         "Next fixtures": fixture_str,
         "Avg FDR": round(avg_fdr, 1) if avg_fdr is not None else None,
         "Ownership trend": momentum_label,
+        "Minutes security": round(minutes_security_score(p), 1),
+        "Advisor score": current_score,
         "Flags": " | ".join(reasons) if reasons else "✅ No issues",
         "Needs attention": needs_attention,
         "captain": pick["is_captain"],
@@ -464,8 +582,10 @@ else:
             st.write(f"**Next fixtures:** {row['Next fixtures']} (avg FDR {row['Avg FDR']})")
             st.write(f"**Ownership trend:** {row['Ownership trend']}")
 
-            # budget available for replacement = this player's sale value + bank
-            budget = row["Cost"] + bank
+            # budget available for replacement = this player's sale value + spendable bank
+            spendable_bank = max(0.0, bank - reserve_bank)
+            budget = row["Cost"] + spendable_bank
+            outgoing_score = float(row["Advisor score"])
 
             def find_candidates(relax_team_limit=False):
                 out = []
@@ -484,7 +604,8 @@ else:
                         continue  # don't suggest unavailable players
                     c_avg_fdr, c_fixture_str = team_fixture_difficulty(cand["team"], fixtures, upcoming_event["id"], n=n_fixtures)
                     understat_match = match_understat(cand, by_full, by_last)
-                    score = player_score(cand, c_avg_fdr, understat_match, total_players_in_game)
+                    score = player_score(cand, c_avg_fdr, understat_match, total_players_in_game, strategy, risk_appetite)
+                    score_delta = round(score - outgoing_score, 2)
                     _, mom_label = ownership_momentum(cand, total_players_in_game)
                     xg90 = xa90 = None
                     if understat_match and float(understat_match.get("time", 0) or 0) > 0:
@@ -501,8 +622,13 @@ else:
                         "xA/90": xa90,
                         "Own %": cand["selected_by_percent"],
                         "Trend": mom_label,
+                        "Minutes security": round(minutes_security_score(cand), 1),
+                        "Value score": round(value_score(cand), 1),
                         "Next fixtures": c_fixture_str,
                         "Score": score,
+                        "Upgrade": score_delta,
+                        "Confidence": confidence_label(score_delta, cand),
+                        "_status": cand.get("status"),
                     })
                 return out
 
@@ -512,13 +638,43 @@ else:
                 relaxed_note = True
                 candidates = find_candidates(relax_team_limit=True)
 
-            cand_df = pd.DataFrame(candidates).sort_values("Score", ascending=False).head(max(MIN_CANDIDATES, 5))
+            cand_df = pd.DataFrame(candidates)
             if cand_df.empty:
                 st.warning("No affordable same-position replacements found even within budget alone — "
                            "you may need to free up more funds by selling elsewhere too.")
             else:
-                st.write(f"**Top replacement options (within £{budget:.1f}m budget):**")
-                st.dataframe(cand_df, use_container_width=True, hide_index=True)
+                cand_df = cand_df.sort_values(["Upgrade", "Score"], ascending=False).head(max(MIN_CANDIDATES, 5))
+                best = cand_df.iloc[0]
+
+                if best["Upgrade"] >= 0.4:
+                    st.markdown(
+                        f"### ✅ Recommended move: {row['Player']} → {best['Player']}"
+                    )
+                    st.write(
+                        f"**Upgrade:** {best['Upgrade']:+.2f} advisor points  |  "
+                        f"**Confidence:** {best['Confidence']}  |  "
+                        f"**Price:** £{best['Cost']:.1f}m"
+                    )
+                    reasons_buy = []
+                    if best["Minutes security"] >= 4:
+                        reasons_buy.append("secure minutes")
+                    if best["xG/90"] is not None and best["xA/90"] is not None and (best["xG/90"] + best["xA/90"]) >= 0.45:
+                        reasons_buy.append("strong xG+xA underlying numbers")
+                    if best["Form"] >= 4:
+                        reasons_buy.append("good recent form")
+                    if best["EP next"] >= 4:
+                        reasons_buy.append("strong next-GW expected points")
+                    if reasons_buy:
+                        st.caption("Why: " + ", ".join(reasons_buy) + ".")
+                else:
+                    st.info(
+                        f"Best available move is only {best['Upgrade']:+.2f} advisor points better than "
+                        f"{row['Player']}. This looks fairly sideways, so rolling the transfer may be reasonable."
+                    )
+
+                st.write(f"**Other replacement options (within £{budget:.1f}m budget):**")
+                display_candidates = cand_df.drop(columns=["_status"], errors="ignore")
+                st.dataframe(display_candidates, use_container_width=True, hide_index=True)
                 if relaxed_note:
                     st.caption("⚠️ Fewer than 3 options fit strictly within your 3-players-per-club limit at this "
                                "budget, so this list is relaxed on that rule — double-check your final XI won't "
@@ -527,6 +683,7 @@ else:
                            "a player creating more than their points suggest can be a good 'buy before the rise' signal.")
 
 st.divider()
-st.caption("Scoring blends official FPL data (form, projected points, fixture difficulty, availability) with "
-           "Understat underlying stats and ownership-momentum as supplementary signals. It's a decision aid, "
+st.caption("Scoring blends official FPL data (form, projected points, fixture difficulty, availability, minutes, "
+           "price/value and ownership momentum) with Understat xG/xA. Strategy and risk settings change the weights. "
+           "The Upgrade column compares each candidate directly with the player you would sell. It's a decision aid, "
            "not a guarantee — always sanity-check team news nearer the deadline before making transfers.")
