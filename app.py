@@ -315,7 +315,7 @@ st.caption("Pulls live data from the official Fantasy Premier League API — ref
 
 with st.sidebar:
     st.header("Your Team")
-    team_id = st.text_input("FPL Team ID", value=st.session_state.get("team_id", ""),
+    team_id = st.text_input("FPL Team ID", value=st.session_state.get("team_id", "4935366"),
                              help="Found in the URL when viewing 'Points' for your team on fantasy.premierleague.com, "
                                   "e.g. .../entry/1234567/event/5 → your ID is 1234567")
     run = st.button("Load / Refresh my squad", type="primary", use_container_width=True)
