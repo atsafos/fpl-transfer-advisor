@@ -1529,7 +1529,7 @@ with st.sidebar:
             st.caption("football-data.org · Temporarily unavailable")
         else:
             st.caption("football-data.org · Optional")
-        with st.expander("Startup diagnostics", expanded=False):
+        if st.checkbox("Show startup diagnostics", value=False, key="show_startup_diagnostics"):
             st.caption("Core FPL calls are fetched in parallel and cached for 30 minutes.")
             for name in ("bootstrap", "fixtures", "entry", "history", "total"):
                 if name in core_timings:
