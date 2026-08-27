@@ -80,6 +80,96 @@ STATUS_LABELS = {
     "n": "Not in squad",
 }
 
+# Hover-tooltip text for every table column used anywhere in the app. Applied via
+# st.column_config so people can hover a column header (ⓘ) to see what it means,
+# instead of having to guess what an abbreviation like "DC" or "EO proxy" stands for.
+COLUMN_HELP = {
+    "Pos": "Position: GKP (goalkeeper), DEF (defender), MID (midfielder), FWD (forward).",
+    "Player": "Player's short/web name, as shown on the official FPL site.",
+    "Team": "Three-letter club code.",
+    "Price": "Current live FPL price in £m.",
+    "Cost": "Current live FPL price in £m.",
+    "Sell price": "What you would actually receive if you sold this player now (can differ from live price after it has risen/fallen since you bought them).",
+    "Form": "FPL's built-in short-term form metric — average points per match over recent Gameweeks.",
+    "Status": "Official FPL fitness/availability flag (Available, Doubtful, Injured, Suspended, Unavailable, Not in squad).",
+    "Fixtures": "Upcoming opponents in the fixture window, with venue (H/A).",
+    "Fixtures 3": "Opponents for the next 3 Gameweeks.",
+    "Fixture score": "0–5 model score for how favourable this player's near-term fixtures are, adjusted for their position (e.g. defenders weight opponent attack, forwards weight opponent defence).",
+    "Fixture swing": "Whether the fixture run is better in the short term, improves later, or is roughly stable — compares the next 3 Gameweeks to the following 3.",
+    "xGI/90": "Expected Goal Involvement per 90 minutes (expected goals + expected assists), sourced from Understat — a proxy for attacking output independent of finishing luck.",
+    "Prior xGI/90": "Same xGI/90 metric, but as a prior-season baseline used for pre-season projections before this season's data exists.",
+    "Set pieces": "Badges showing if the player is on penalties, direct free-kicks, and/or corners for their club.",
+    "Minutes": "0–5 score for how secure this player's starting-minutes are (nailed-on starter vs rotation/bench risk).",
+    "Rotation": "0–5 rotation/fixture-congestion risk score — combines low minutes-security with a congested run of fixtures (and any cup/Europe caution clubs you've flagged).",
+    "Bonus": "Recent bonus-points system (BPS) form — a signal for who tends to pick up the extra 1–3 bonus points each match.",
+    "DC": "Defensive Contribution score — likelihood of hitting the FPL defensive-contribution points threshold (tackles/interceptions/clearances for outfield players).",
+    "Captaincy": "0–5 model score for how strong an armband pick this player is this Gameweek (ceiling of returns × fixture × role).",
+    "Own %": "Percentage of FPL managers who currently own this player (selected-by %).",
+    "EO proxy": "Estimated effective ownership — approximates true captained/owned exposure using ownership % plus explosive-returns potential; higher means more rank risk if they blank, more rank protection if they haul.",
+    "Market": "Transfer-market momentum label for this Gameweek: Hot buy / Buying pressure / Stable / Selling pressure / Heavy selling.",
+    "Market %": "Net transfers in minus out this Gameweek, as a % of all FPL managers.",
+    "Advisor score": "This app's single blended strategy score — combines form, projections, fixtures, xGI/90, availability, minutes, value, set pieces, bonus/BPS, defensive contribution, ownership and market momentum, weighted by your chosen Strategy and Risk appetite.",
+    "Upgrade": "Advisor-score improvement versus the player you're comparing against (a candidate's score minus the outgoing player's score).",
+    "Flags": "Plain-language reasons this player is flagged for review (news, poor form, fixtures, rotation risk, etc). 'No major issues' means nothing stood out.",
+    "News": "Latest official FPL team news string for this player (injuries, suspensions, press-conference notes).",
+    "Proj GW1": "Projected points for the upcoming single Gameweek, from the live points-projection model.",
+    "Proj 3": "Projected total points over the next 3 Gameweeks.",
+    "Proj 5": "Projected total points over the next 5 Gameweeks.",
+    "Prior PPG": "Prior-season average points per game — used as a pre-season baseline before live-season data exists.",
+    "Prior pts/90": "Prior-season points per 90 minutes played.",
+    "Expert": "0–5 score from the optional `expert_consensus.csv` file — a small, transparent layer of editorial/community opinion, not an automatic scrape.",
+    "Expert mentions": "How many expert sources/content pieces mentioned this player, from the optional consensus file.",
+    "Expert note": "Free-text summary note from the optional expert-consensus file.",
+    "Build score": "Combined score used only for pre-season squad building — statistical projection blended with the optional expert layer.",
+    "Structure": "Name of the alternative squad-construction approach being compared (Balanced, Template/Safe, Aggressive/Differential, Value).",
+    "3GW projection": "Total projected points for that squad structure over the first 3 Gameweeks.",
+    "Avg ownership %": "Average selected-by % across the 15 players in that squad structure — a rough gauge of how 'template' vs differential it is.",
+    "Premium core": "The three most expensive players in that squad structure.",
+    "GW": "Gameweek number.",
+    "FT entering": "Free transfers available going into that Gameweek, based on simulated banking.",
+    "Action": "Suggested action for that Gameweek: ROLL (bank the transfer) or REVIEW (a squad player projects unusually low).",
+    "Focus": "The specific reason behind the suggested action for that Gameweek.",
+    "Out 1": "First player suggested to sell in a two-transfer plan.",
+    "In 1": "First player suggested to buy in a two-transfer plan.",
+    "Out 2": "Second player suggested to sell in a two-transfer plan.",
+    "In 2": "Second player suggested to buy in a two-transfer plan.",
+    "5GW gain": "Combined projected 5-Gameweek points gain of the two incoming players minus the two outgoing players.",
+    "Bank after": "Money left in the bank (£m) after making both transfers.",
+    "Transfer cost": "Points cost of taking these transfers: 0 if covered by free transfers, -4 per extra hit.",
+    "Funding gap": "How much extra money (£m) you'd still need to free up elsewhere to afford this target, after selling the chosen player and using your bank.",
+    "GF/game": "Goals scored per game, from recent results.",
+    "GA/game": "Goals conceded per game, from recent results.",
+    "Home GF": "Goals scored per game in recent home matches.",
+    "Away GF": "Goals scored per game in recent away matches.",
+    "PPG last 5": "Points per game (3 for a win, 1 for a draw) across the team's last 5 completed matches.",
+    "Metric": "The stat being compared between the two players in this row.",
+}
+
+# One-line description of every workspace tab, shown in the sidebar and as a caption
+# at the top of each page so it's clear what each tab is trying to answer.
+PAGE_HELP = {
+    "Home": "Your at-a-glance dashboard: this Gameweek's key decisions, top signals and projected point leaders.",
+    "Transfers": "Get single- and two-transfer recommendations: who to sell, who to bring in, and the projected points gain.",
+    "Planner": "Your best starting XI, bench order and captain pick for the upcoming Gameweek, plus a 3–5 Gameweek forward roadmap.",
+    "Squad": "One big table with every stat the app tracks for your 15 players, side by side.",
+    "Player Lab": "Look up any player in the game, compare them to one of your own, or run 'what if I sell / how do I get' scenarios.",
+    "Chips": "Heuristic guidance on whether now looks like a good moment to use Wildcard, Free Hit, Bench Boost or Triple Captain.",
+    "Analytics": "Deeper cuts of your squad: fixture-swing ranking, ownership/market risk, and recent real-world team form.",
+    "Model": "Explains how the Advisor score and point projections are calculated, and which data sources feed them.",
+}
+
+
+def dataframe_with_help(df, columns=None, **kwargs):
+    """st.dataframe wrapper that adds a hover-tooltip (ⓘ) to each column header,
+    explaining what that column means, using the COLUMN_HELP glossary above."""
+    view = df[columns] if columns else df
+    config = {
+        col: st.column_config.Column(help=COLUMN_HELP[col])
+        for col in view.columns
+        if col in COLUMN_HELP
+    }
+    return st.dataframe(view, column_config=config, **kwargs)
+
 # Understat uses full club names; FPL uses short codes. Map short -> Understat name.
 UNDERSTAT_TEAM_NAME = {
     "ARS": "Arsenal", "AVL": "Aston Villa", "BOU": "Bournemouth", "BRE": "Brentford",
@@ -1173,14 +1263,18 @@ def render_gw1_builder(bootstrap, fixtures, teams_by_id, season_start_year, dead
         expert_lookup = load_expert_consensus()
         rows = [preseason_player_profile(p, fixtures, teams_by_id, prev_lookup, prev_understat, prev_us_full, prev_us_last, expert_lookup, 1) for p in bootstrap["elements"]]
     a, b, c, d = st.columns(4)
-    a.metric("Live player pool", len(rows)); b.metric("Prior-player matches", len(prev_lookup)); c.metric("Underlying profiles", len(prev_understat)); d.metric("Expert-rated players", len(expert_lookup))
+    a.metric("Live player pool", len(rows), help="Total players available in the live 2026/27 FPL database.")
+    b.metric("Prior-player matches", len(prev_lookup), help="How many of those players were matched to a prior-season record, used for pre-season projection baselines.")
+    c.metric("Underlying profiles", len(prev_understat), help="How many players have prior-season Understat xG/xA data available.")
+    d.metric("Expert-rated players", len(expert_lookup), help="How many players appear in the optional expert_consensus.csv file, if one is present.")
+    st.caption("Set your squad style and filters, then the builder assembles a legal £100m squad and its best starting XI.")
     c1, c2, c3 = st.columns([1.3, 1, 1])
     with c1:
-        style = st.selectbox("Squad style", ["Balanced", "Template / Safe", "First 3 GWs", "Aggressive / Differential", "Value", "Premium captaincy"])
+        style = st.selectbox("Squad style", ["Balanced", "Template / Safe", "First 3 GWs", "Aggressive / Differential", "Value", "Premium captaincy"], help="The overall approach the optimiser targets, e.g. Template/Safe favours high-ownership picks, Value favours points-per-million, Premium captaincy prioritises a strong armband option.")
     with c2:
-        bank_target = st.number_input("Leave in bank (£m)", 0.0, 5.0, 0.0, 0.5, key="gw1_bank")
+        bank_target = st.number_input("Leave in bank (£m)", 0.0, 5.0, 0.0, 0.5, key="gw1_bank", help="Budget the optimiser should deliberately leave unspent.")
     with c3:
-        min_prior_minutes = st.number_input("Min prior-season minutes", 0, 3000, 450, 90)
+        min_prior_minutes = st.number_input("Min prior-season minutes", 0, 3000, 450, 90, help="Excludes players who played fewer than this many minutes last season (new signings with 0 prior minutes are always kept eligible).")
     eligible = [r for r in rows if r["Prior minutes"] >= min_prior_minutes or r["Prior PPG"] == 0]
     squad = optimise_gw1_squad(eligible, style, 100.0, bank_target)
     if not squad:
@@ -1189,16 +1283,19 @@ def render_gw1_builder(bootstrap, fixtures, teams_by_id, season_start_year, dead
     sdf = pd.DataFrame(squad)
     total_cost = sdf["Price"].sum(); projected = sdf["Proj 3"].sum(); ownership = sdf["Own %"].mean()
     x, y, z, w = st.columns(4)
-    x.metric("Squad cost", f"£{total_cost:.1f}m", f"£{100-total_cost:.1f}m bank"); y.metric("15-player 3GW projection", f"{projected:.1f}"); z.metric("Average ownership", f"{ownership:.1f}%"); w.metric("Prior-data coverage", f"{sum(sdf['Prior PPG']>0)}/15")
+    x.metric("Squad cost", f"£{total_cost:.1f}m", f"£{100-total_cost:.1f}m bank", help="Total cost of the 15-player squad, and money left over from the £100m budget.")
+    y.metric("15-player 3GW projection", f"{projected:.1f}", help="Combined projected points for all 15 squad players across the opening 3 Gameweeks.")
+    z.metric("Average ownership", f"{ownership:.1f}%", help="Average selected-by % across the 15 players — a rough gauge of how 'template' vs differential the squad is.")
+    w.metric("Prior-data coverage", f"{sum(sdf['Prior PPG']>0)}/15", help="How many of the 15 players have a prior-season points-per-game record to base projections on.")
     xi, bench, caps = optimal_starting_xi(sdf.to_dict("records"))
-    st.markdown("### Suggested starting XI")
-    st.dataframe(pd.DataFrame(xi)[["Pos", "Player", "Team", "Price", "Proj GW1", "Proj 3", "Prior xGI/90", "Fixtures 3", "Set pieces", "Own %"]], use_container_width=True, hide_index=True)
+    st.markdown("### Suggested starting XI"); st.caption("The best-projected legal starting XI from within the built squad. Hover any column header for what it means.")
+    dataframe_with_help(pd.DataFrame(xi)[["Pos", "Player", "Team", "Price", "Proj GW1", "Proj 3", "Prior xGI/90", "Fixtures 3", "Set pieces", "Own %"]], use_container_width=True, hide_index=True)
     if caps:
         st.success(f"Captain: **{caps[0]['Player']}** · Vice-captain: **{caps[1]['Player'] if len(caps)>1 else '—'}**")
     st.caption("Bench: " + " → ".join(f"{r['Player']} (£{r['Price']:.1f}m)" for r in bench))
-    st.markdown("### Full 15-player squad")
-    st.dataframe(sdf[["Pos", "Player", "Team", "Price", "Proj GW1", "Proj 3", "Proj 5", "Prior PPG", "Prior pts/90", "Prior xGI/90", "Minutes", "Fixtures 3", "Set pieces", "Own %", "Expert"]].sort_values(["Pos", "Price"], ascending=[True, False]), use_container_width=True, hide_index=True)
-    st.markdown("### Compare structures")
+    st.markdown("### Full 15-player squad"); st.caption("Every player in the built squad, with pricing, projections and prior-season context.")
+    dataframe_with_help(sdf[["Pos", "Player", "Team", "Price", "Proj GW1", "Proj 3", "Proj 5", "Prior PPG", "Prior pts/90", "Prior xGI/90", "Minutes", "Fixtures 3", "Set pieces", "Own %", "Expert"]].sort_values(["Pos", "Price"], ascending=[True, False]), use_container_width=True, hide_index=True)
+    st.markdown("### Compare structures"); st.caption("Rebuilds the squad under alternative styles so you can weigh cost, projection and ownership trade-offs side by side.")
     summaries = []
     for alt in ["Balanced", "Template / Safe", "Aggressive / Differential", "Value"]:
         sq = optimise_gw1_squad(eligible, alt, 100.0, bank_target)
@@ -1206,13 +1303,13 @@ def render_gw1_builder(bootstrap, fixtures, teams_by_id, season_start_year, dead
             dd = pd.DataFrame(sq)
             summaries.append({"Structure": alt, "Cost": round(dd["Price"].sum(), 1), "3GW projection": round(dd["Proj 3"].sum(), 1), "Avg ownership %": round(dd["Own %"].mean(), 1), "Premium core": ", ".join(dd.sort_values("Price", ascending=False).head(3)["Player"].tolist())})
     if summaries:
-        st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
+        dataframe_with_help(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
     with st.expander("Expert consensus layer", expanded=False):
         if expert_lookup:
             st.caption("Loaded from `expert_consensus.csv` in your repository. Expert opinion remains a small, transparent input rather than overriding the statistical model.")
             expert_rows = [r for r in rows if r["Expert"] > 0]
             if expert_rows:
-                st.dataframe(pd.DataFrame(expert_rows)[["Player", "Team", "Pos", "Expert", "Expert mentions", "Expert note", "Build score"]].sort_values("Expert", ascending=False), use_container_width=True, hide_index=True)
+                dataframe_with_help(pd.DataFrame(expert_rows)[["Player", "Team", "Pos", "Expert", "Expert mentions", "Expert note", "Build score"]].sort_values("Expert", ascending=False), use_container_width=True, hide_index=True)
         else:
             st.caption("Optional: add `expert_consensus.csv` with columns `player,score,mentions,note` (score 0–5). This avoids fragile automatic scraping of editorial sites.")
     st.caption("Pre-season projections are lower-confidence than in-season forecasts. Live FPL prices/positions are authoritative; prior-season and expert layers are supplementary.")
@@ -1496,16 +1593,20 @@ with st.sidebar:
 
     st.markdown('<div class="rail-section-label">Workspace</div>', unsafe_allow_html=True)
     page=st.radio("Navigation",["Home","Transfers","Planner","Squad","Player Lab","Chips","Analytics","Model"],label_visibility="collapsed")
+    with st.expander("What's in each tab?", expanded=False):
+        for _pg in ["Home","Transfers","Planner","Squad","Player Lab","Chips","Analytics","Model"]:
+            st.caption(f"**{_pg}** — {PAGE_HELP[_pg]}")
 
     st.markdown('<div class="rail-section-label">Controls</div>', unsafe_allow_html=True)
     with st.expander("Strategy & filters", expanded=False):
-        strategy=st.selectbox("Strategy",["Balanced","Short-term (next 3 GWs)","Long-term hold","Differential","Protect rank"],index=0)
-        risk_appetite=st.slider("Risk appetite",1,5,3)
-        reserve_bank=st.number_input("Keep in bank (£m)",0.0,10.0,0.0,0.1)
-        n_fixtures=st.slider("Fixture horizon",3,8,5)
-        min_minutes_security=st.slider("Minimum minutes security",0.0,5.0,2.0,0.5)
-        include_doubtful=st.checkbox("Include doubtful targets",False)
-        caution_text=st.text_input("Cup/Europe caution clubs",value="",placeholder="ARS,MCI,LIV")
+        st.caption("These settings feed the Advisor score and the Transfers/Planner recommendations across every tab.")
+        strategy=st.selectbox("Strategy",["Balanced","Short-term (next 3 GWs)","Long-term hold","Differential","Protect rank"],index=0,help="How the Advisor score is weighted: e.g. Short-term leans on the next 3 fixtures, Differential favours lower-ownership players, Protect rank favours safer, template picks.")
+        risk_appetite=st.slider("Risk appetite",1,5,3,help="1 = favour safe, high-ownership, secure-minutes players. 5 = favour explosive, higher-variance picks even if riskier.")
+        reserve_bank=st.number_input("Keep in bank (£m)",0.0,10.0,0.0,0.1,help="Money the recommendations should leave untouched in the bank rather than spend on transfers.")
+        n_fixtures=st.slider("Fixture horizon",3,8,5,help="How many upcoming Gameweeks the fixture-difficulty and fixture-score calculations look at.")
+        min_minutes_security=st.slider("Minimum minutes security",0.0,5.0,2.0,0.5,help="Filters out transfer targets below this 0–5 starting-minutes security score, to avoid recommending rotation risks.")
+        include_doubtful=st.checkbox("Include doubtful targets",False,help="If off, players flagged Doubtful by FPL are excluded from transfer suggestions.")
+        caution_text=st.text_input("Cup/Europe caution clubs",value="",placeholder="ARS,MCI,LIV",help="Comma-separated club codes to treat as extra rotation risk (e.g. teams in Europe/late cup rounds who may rest players).")
         caution_clubs={x.strip().upper() for x in caution_text.split(",") if x.strip()}
 
     with st.expander("Team & data", expanded=False):
@@ -1551,19 +1652,23 @@ else: action_state,action_title,action_copy="ACT","Your squad has several pressu
 st.markdown(f'<div class="fpl-hero"><div class="fpl-eyebrow">Gameweek {upcoming_event["id"]} · {deadline_text}</div><h1>{html.escape(entry.get("name","FPL Transfer Advisor"))}</h1><p>Live decision support using FPL data, underlying numbers, projections and squad optimisation.</p></div>',unsafe_allow_html=True)
 
 if page=="Home":
+    st.caption(PAGE_HELP["Home"])
     st.markdown(f'<div class="decision-banner"><span class="tag">{action_state}</span><h2>{action_title}</h2><p>{action_copy}</p></div>',unsafe_allow_html=True)
+    st.caption("**ROLL** = no urgent issue, banking a transfer is fine · **WATCH** = 1–2 things worth monitoring · **ACT** = several pressure points, prioritise the biggest one. Based on how many squad players are currently flagged below.")
     c1,c2,c3,c4=st.columns(4)
-    metrics=[(c1,"FREE TRANSFERS",str(free_transfers),"Bank up to five"),(c2,"BANK",f"£{bank:.1f}m",f"Squad £{squad_value:.1f}m"),(c3,"OVERALL RANK",f"{overall_rank:,}" if overall_rank else "—","Live FPL rank"),(c4,"DATA",("3 sources" if fd_matches else "2 sources"),("FPL + Understat + team form" if fd_matches else "FPL + Understat"))]
-    for col,label,val,sub in metrics:
-        with col: st.markdown(f'<div class="metric-card"><div class="metric-label">{label}</div><div class="metric-value">{val}</div><div class="metric-sub">{sub}</div></div>',unsafe_allow_html=True)
-    st.markdown("### This Gameweek"); a,b,c,d=st.columns(4); cards=[(a,"©","Captain",best_cap["Player"] if best_cap else "—",f"Projected {best_cap['Proj GW1']:.1f} pts" if best_cap else ""),(b,"↗","Best fixture window",strongest_swing["Player"] if strongest_swing else "—",strongest_swing["Fixture swing"] if strongest_swing else ""),(c,"🔥","Market heat",hot_market["Player"] if hot_market else "—",hot_market["Market"] if hot_market else ""),(d,"🛡","Secure minutes",f"{sum(r['Minutes']>=4 for r in squad_rows)}/15","Players ≥4/5")]
-    for col,icon,title,big,small in cards:
-        with col: st.markdown(f'<div class="signal-card"><div class="icon">{icon}</div><div class="title">{title}</div><div class="big">{html.escape(str(big))}</div><div class="small">{html.escape(str(small))}</div></div>',unsafe_allow_html=True)
-    st.markdown("### Projection leaders"); st.dataframe(squad_df.sort_values("Proj 5",ascending=False).head(6)[["Player","Pos","Team","Proj GW1","Proj 3","Proj 5","Captaincy","Fixture swing"]],use_container_width=True,hide_index=True)
+    metrics=[(c1,"FREE TRANSFERS",str(free_transfers),"Bank up to five","How many transfers you can make this Gameweek without a points hit."),(c2,"BANK",f"£{bank:.1f}m",f"Squad £{squad_value:.1f}m","Unspent budget, and your total squad value at current sell prices."),(c3,"OVERALL RANK",f"{overall_rank:,}" if overall_rank else "—","Live FPL rank","Your live official FPL overall rank."),(c4,"DATA",("3 sources" if fd_matches else "2 sources"),("FPL + Understat + team form" if fd_matches else "FPL + Understat"),"Which live data sources are currently feeding the projections.")]
+    for col,label,val,sub,tip in metrics:
+        with col: st.markdown(f'<div class="metric-card" title="{html.escape(tip)}"><div class="metric-label">{label}</div><div class="metric-value">{val}</div><div class="metric-sub">{sub}</div></div>',unsafe_allow_html=True)
+    st.markdown("### This Gameweek"); st.caption("Four quick signals for the upcoming Gameweek — hover a card for what it measures.")
+    a,b,c,d=st.columns(4); cards=[(a,"©","Captain",best_cap["Player"] if best_cap else "—",f"Projected {best_cap['Proj GW1']:.1f} pts" if best_cap else "","The armband recommendation — highest Captaincy score in your starting XI this Gameweek."),(b,"↗","Best fixture window",strongest_swing["Player"] if strongest_swing else "—",strongest_swing["Fixture swing"] if strongest_swing else "","The squad player with the most favourable near-term Fixture score."),(c,"🔥","Market heat",hot_market["Player"] if hot_market else "—",hot_market["Market"] if hot_market else "","The squad player seeing the biggest net transfer activity (in or out) this Gameweek."),(d,"🛡","Secure minutes",f"{sum(r['Minutes']>=4 for r in squad_rows)}/15","Players ≥4/5","How many of your 15 players have a high (4 or 5 out of 5) minutes-security score, i.e. look like nailed-on starters.")]
+    for col,icon,title,big,small,tip in cards:
+        with col: st.markdown(f'<div class="signal-card" title="{html.escape(tip)}"><div class="icon">{icon}</div><div class="title">{title}</div><div class="big">{html.escape(str(big))}</div><div class="small">{html.escape(str(small))}</div></div>',unsafe_allow_html=True)
+    st.markdown("### Projection leaders"); st.caption("Your own squad's top 6 players by projected points over the next 5 Gameweeks — hover any column header for what it means.")
+    dataframe_with_help(squad_df.sort_values("Proj 5",ascending=False).head(6)[["Player","Pos","Team","Proj GW1","Proj 3","Proj 5","Captaincy","Fixture swing"]],use_container_width=True,hide_index=True)
     if not football_data_key: st.info("Optional: add a free football-data.org token as `FOOTBALL_DATA_API_KEY` in Streamlit Secrets for recent team-form and home/away enrichment.")
 
 elif page=="Transfers":
-    st.markdown("## Transfer Lab"); st.caption("One-transfer recommendations first; then a two-transfer budget restructure.")
+    st.markdown("## Transfer Lab"); st.caption(PAGE_HELP["Transfers"]+" One-transfer recommendations first; then a two-transfer budget restructure.")
     outgoing_name=st.selectbox("Player to review",squad_df.sort_values(["Needs attention","Advisor score"],ascending=[False,True])["Player"].tolist()); outgoing=squad_df[squad_df["Player"]==outgoing_name].iloc[0]
     candidates=build_replacement_candidates(outgoing,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,bank,min_minutes_security,include_doubtful,historical_baselines,team_form,15)
     if candidates:
@@ -1573,9 +1678,9 @@ elif page=="Transfers":
         for i,cand in enumerate(candidates[:3]):
             with cols[i]:
                 reasons=" · ".join(cand["Reasons"][:3]) or "Balanced profile"; st.markdown(f'<div class="transfer-card {"best" if i==0 else ""}"><div class="fpl-eyebrow">#{i+1} target</div><h3>{html.escape(cand["Player"])}</h3><div><span class="pill">{cand["Team"]}</span><span class="pill">£{cand["Cost"]:.1f}m</span><span class="pill pill-cyan">5GW {cand["Proj 5"]:.1f}</span></div>{fixture_chips_html(cand["fixture_details"],5)}<p><span class="proj-badge">GW {cand["Proj GW1"]:.1f}</span><span class="proj-badge">3GW {cand["Proj 3"]:.1f}</span></p><p style="font-size:.8rem;color:#655d69">{html.escape(reasons)}</p></div>',unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(candidates)[["Player","Team","Cost","Proj GW1","Proj 3","Proj 5","xGI/90","Minutes","Captaincy","Own %","Market","Upgrade"]],use_container_width=True,hide_index=True)
+        dataframe_with_help(pd.DataFrame(candidates)[["Player","Team","Cost","Proj GW1","Proj 3","Proj 5","xGI/90","Minutes","Captaincy","Own %","Market","Upgrade"]],use_container_width=True,hide_index=True)
     else: st.warning("No legal replacement fits the current filters and budget.")
-    st.markdown("### Two-transfer squad optimiser"); st.caption("Includes enabler moves and compares the combined five-Gameweek projection.")
+    st.markdown("### Two-transfer squad optimiser"); st.caption("Tests pairs of your weakest-projected players against affordable replacements — including 'enabler' downgrades that free up budget for a premium elsewhere — and ranks plans by combined five-Gameweek gain.")
     plans=[]; pool=squad_df.sort_values(["Needs attention","Proj 5"],ascending=[False,True]).head(6)
     # Fast two-move search: evaluate top candidates for two weaker squad slots and shared budget.
     pool_rows=list(pool.iterrows())
@@ -1594,50 +1699,64 @@ elif page=="Transfers":
                     counts=squad_df["Team"].value_counts().to_dict(); counts[r1["Team"]]-=1; counts[r2["Team"]]-=1; counts[x["Team"]]=counts.get(x["Team"],0)+1; counts[y["Team"]]=counts.get(y["Team"],0)+1
                     if max(counts.values())>3: continue
                     gain=(x["Proj 5"]+y["Proj 5"])-(r1["Proj 5"]+r2["Proj 5"]); plans.append({"Out 1":r1["Player"],"In 1":x["Player"],"Out 2":r2["Player"],"In 2":y["Player"],"5GW gain":round(gain,1),"Bank after":round(funds-x["Cost"]-y["Cost"]+reserve_bank,1),"Transfer cost":"0" if free_transfers>=2 else "-4"})
-    if plans: st.dataframe(pd.DataFrame(plans).sort_values("5GW gain",ascending=False).drop_duplicates().head(10),use_container_width=True,hide_index=True)
+    if plans: dataframe_with_help(pd.DataFrame(plans).sort_values("5GW gain",ascending=False).drop_duplicates().head(10),use_container_width=True,hide_index=True)
     else: st.info("No compelling legal two-transfer restructure found with the current filters.")
 
 elif page=="Planner":
-    st.markdown("## Gameweek & 5-GW Planner"); st.markdown("### Best XI"); st.dataframe(pd.DataFrame(xi)[["Pos","Player","Team","Proj GW1","Captaincy","Fixtures","Status"]],use_container_width=True,hide_index=True)
+    st.markdown("## Gameweek & 5-GW Planner"); st.caption(PAGE_HELP["Planner"])
+    st.markdown("### Best XI"); st.caption("The highest-projected legal starting XI from your 15-player squad for the upcoming Gameweek.")
+    dataframe_with_help(pd.DataFrame(xi)[["Pos","Player","Team","Proj GW1","Captaincy","Fixtures","Status"]],use_container_width=True,hide_index=True)
     if cap_pair: st.success(f"Captain: **{cap_pair[0]['Player']}** · Vice: **{cap_pair[1]['Player'] if len(cap_pair)>1 else '—'}**")
-    st.markdown("### Bench order"); st.write(" → ".join(f"{r['Player']} ({r['Proj GW1']:.1f})" for r in bench_rows))
+    st.markdown("### Bench order"); st.caption("Your 4 non-starters, ordered so the best auto-sub option comes first.")
+    st.write(" → ".join(f"{r['Player']} ({r['Proj GW1']:.1f})" for r in bench_rows))
     roadmap=[]; sim_ft=free_transfers
     for ev in range(upcoming_event["id"],min(39,upcoming_event["id"]+5)):
         vals=[]
         for r in squad_rows:
             p=players_by_id[r["id"]]; us=match_understat(p,by_full,by_last); vals.append((event_projection(p,ev,fixtures,teams_by_id,us,historical_baselines,team_form),r))
         weak=min(vals,key=lambda x:x[0]) if vals else (0,None); action="REVIEW" if weak[1] and weak[0]<2.2 else "ROLL"; focus=f"{weak[1]['Player']} projects {weak[0]:.1f}" if action=="REVIEW" else "Bank flexibility"; roadmap.append({"GW":ev,"FT entering":sim_ft,"Action":action,"Focus":focus}); sim_ft=min(5,sim_ft+1) if action=="ROLL" else sim_ft
-    st.markdown("### 3–5 Gameweek roadmap"); st.dataframe(pd.DataFrame(roadmap),use_container_width=True,hide_index=True); st.caption("Roadmap freezes today's prices and player information; rerun after each deadline.")
+    st.markdown("### 3–5 Gameweek roadmap"); st.caption("A Gameweek-by-Gameweek simulation of whether to ROLL a transfer or REVIEW a squad player, based on projected points a few weeks out.")
+    dataframe_with_help(pd.DataFrame(roadmap),use_container_width=True,hide_index=True); st.caption("Roadmap freezes today's prices and player information; rerun after each deadline.")
 
 elif page=="Squad":
-    st.markdown("## Squad intelligence"); cols=["Pos","Player","Team","Price","Sell price","Form","Status","Proj GW1","Proj 3","Proj 5","xGI/90","Fixture score","Fixture swing","Minutes","Rotation","Bonus","DC","Captaincy","Own %","EO proxy","Market","Advisor score","Flags"]; st.dataframe(squad_df[cols],use_container_width=True,hide_index=True)
+    st.markdown("## Squad intelligence"); st.caption(PAGE_HELP["Squad"]+" Hover any column header for what it measures.")
+    cols=["Pos","Player","Team","Price","Sell price","Form","Status","Proj GW1","Proj 3","Proj 5","xGI/90","Fixture score","Fixture swing","Minutes","Rotation","Bonus","DC","Captaincy","Own %","EO proxy","Market","Advisor score","Flags"]; dataframe_with_help(squad_df[cols],use_container_width=True,hide_index=True)
 
 elif page=="Player Lab":
-    st.markdown("## Player Lab"); st.caption("Search, compare and run squad scenarios."); all_names=sorted([p["web_name"] for p in bootstrap["elements"]]); selected=st.selectbox("Search player",all_names); target=next(p for p in bootstrap["elements"] if p["web_name"]==selected); us=match_understat(target,by_full,by_last); comps=player_fpl_components(target,fixtures,teams_by_id,upcoming_event["id"],n_fixtures,us); p1,_=projected_horizon(target,upcoming_event["id"],1,fixtures,teams_by_id,us,historical_baselines,team_form); p3,_=projected_horizon(target,upcoming_event["id"],3,fixtures,teams_by_id,us,historical_baselines,team_form); p5,_=projected_horizon(target,upcoming_event["id"],5,fixtures,teams_by_id,us,historical_baselines,team_form)
+    st.markdown("## Player Lab"); st.caption(PAGE_HELP["Player Lab"]); all_names=sorted([p["web_name"] for p in bootstrap["elements"]]); selected=st.selectbox("Search player",all_names); target=next(p for p in bootstrap["elements"] if p["web_name"]==selected); us=match_understat(target,by_full,by_last); comps=player_fpl_components(target,fixtures,teams_by_id,upcoming_event["id"],n_fixtures,us); p1,_=projected_horizon(target,upcoming_event["id"],1,fixtures,teams_by_id,us,historical_baselines,team_form); p3,_=projected_horizon(target,upcoming_event["id"],3,fixtures,teams_by_id,us,historical_baselines,team_form); p5,_=projected_horizon(target,upcoming_event["id"],5,fixtures,teams_by_id,us,historical_baselines,team_form)
     a,b,c,d=st.columns(4)
+    metric_help={"GW projection":COLUMN_HELP["Proj GW1"],"Next 3":COLUMN_HELP["Proj 3"],"Next 5":COLUMN_HELP["Proj 5"],"xGI/90":COLUMN_HELP["xGI/90"]}
     for col,label,val in [(a,"GW projection",p1),(b,"Next 3",p3),(c,"Next 5",p5),(d,"xGI/90",f"{comps['xgi90']:.2f}")]:
-        with col: st.metric(label,val)
-    compare=st.selectbox("Compare with your player",squad_df["Player"].tolist()); cr=squad_df[squad_df["Player"]==compare].iloc[0]; comp=pd.DataFrame({"Metric":["Price","GW projection","Next 3","Next 5","xGI/90","Minutes","Captaincy","Ownership %"],compare:[cr["Price"],cr["Proj GW1"],cr["Proj 3"],cr["Proj 5"],cr["xGI/90"],cr["Minutes"],cr["Captaincy"],cr["Own %"]],selected:[safe_float(target.get("now_cost"),0)/10,p1,p3,p5,comps["xgi90"],minutes_security_score(target),comps["captaincy"],safe_float(target.get("selected_by_percent"),0)]}); st.dataframe(comp,use_container_width=True,hide_index=True)
-    st.markdown("### Scenario mode"); scenario=st.radio("Scenario",["What if I sell…","How do I get…"],horizontal=True,label_visibility="collapsed")
+        with col: st.metric(label,val,help=metric_help[label])
+    st.caption("Side-by-side comparison of the searched player against one of your own squad members, row by row (hover the **Metric** column header for what each row means).")
+    compare=st.selectbox("Compare with your player",squad_df["Player"].tolist()); cr=squad_df[squad_df["Player"]==compare].iloc[0]; comp=pd.DataFrame({"Metric":["Price","GW projection","Next 3","Next 5","xGI/90","Minutes","Captaincy","Ownership %"],compare:[cr["Price"],cr["Proj GW1"],cr["Proj 3"],cr["Proj 5"],cr["xGI/90"],cr["Minutes"],cr["Captaincy"],cr["Own %"]],selected:[safe_float(target.get("now_cost"),0)/10,p1,p3,p5,comps["xgi90"],minutes_security_score(target),comps["captaincy"],safe_float(target.get("selected_by_percent"),0)]}); dataframe_with_help(comp,use_container_width=True,hide_index=True)
+    st.markdown("### Scenario mode"); st.caption("'What if I sell…' shows replacement options for a chosen squad player. 'How do I get…' shows what it would cost to fund a specific target from your current squad.")
+    scenario=st.radio("Scenario",["What if I sell…","How do I get…"],horizontal=True,label_visibility="collapsed")
     if scenario=="What if I sell…":
         who=st.selectbox("Sell",squad_df["Player"].tolist(),key="sellscenario"); rr=squad_df[squad_df["Player"]==who].iloc[0]; cc=build_replacement_candidates(rr,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,bank,min_minutes_security,include_doubtful,historical_baselines,team_form,8)
-        if cc: st.dataframe(pd.DataFrame(cc)[["Player","Team","Cost","Proj 3","Proj 5","Upgrade"]],use_container_width=True,hide_index=True)
+        if cc: dataframe_with_help(pd.DataFrame(cc)[["Player","Team","Cost","Proj 3","Proj 5","Upgrade"]],use_container_width=True,hide_index=True)
     else:
-        wanted=st.selectbox("Target player",all_names,key="wanted"); wp=next(p for p in bootstrap["elements"] if p["web_name"]==wanted); needed=safe_float(wp.get("now_cost"),0)/10; compatible=squad_df[squad_df["Pos"]==POSITION_MAP[wp["element_type"]]].copy(); compatible["Funding gap"]=needed-(compatible["Sell price"]+bank-reserve_bank); st.write(f"Target price: **£{needed:.1f}m**"); st.dataframe(compatible[["Player","Sell price","Proj 5","Funding gap"]].sort_values("Funding gap"),use_container_width=True,hide_index=True); st.caption("Positive funding gap means an enabling move is needed elsewhere; use the two-transfer optimiser.")
+        wanted=st.selectbox("Target player",all_names,key="wanted"); wp=next(p for p in bootstrap["elements"] if p["web_name"]==wanted); needed=safe_float(wp.get("now_cost"),0)/10; compatible=squad_df[squad_df["Pos"]==POSITION_MAP[wp["element_type"]]].copy(); compatible["Funding gap"]=needed-(compatible["Sell price"]+bank-reserve_bank); st.write(f"Target price: **£{needed:.1f}m**"); dataframe_with_help(compatible[["Player","Sell price","Proj 5","Funding gap"]].sort_values("Funding gap"),use_container_width=True,hide_index=True); st.caption("Positive funding gap means an enabling move is needed elsewhere; use the two-transfer optimiser.")
 
 elif page=="Chips":
-    st.markdown("## Chip Centre"); chips=chip_recommendations(squad_rows,upcoming_event["id"],free_transfers); cols=st.columns(2)
+    st.markdown("## Chip Centre"); st.caption(PAGE_HELP["Chips"]+" CONSIDER = worth exploring this Gameweek · WATCH = not yet, keep an eye on it · everything else = hold.")
+    chips=chip_recommendations(squad_rows,upcoming_event["id"],free_transfers); cols=st.columns(2)
     for i,(chip,(status,why)) in enumerate(chips.items()):
         with cols[i%2]: st.markdown(f'<div class="transfer-card"><div class="fpl-eyebrow">{chip}</div><h3>{status}</h3><span class="pill {"pill-green" if status=="CONSIDER" else "pill-warn" if status=="WATCH" else ""}">{status}</span><p style="font-size:.84rem;color:#665e69">{html.escape(why)}</p></div>',unsafe_allow_html=True)
     st.info("Chip suggestions are heuristics. Confirm current rules and upcoming blanks/doubles before activation.")
 
 elif page=="Analytics":
-    st.markdown("## Analytics"); st.markdown("### Fixture swings"); st.dataframe(squad_df[["Player","Pos","Team","Fixture score","Fixture swing","Proj 3","Proj 5"]].sort_values("Fixture score",ascending=False),use_container_width=True,hide_index=True); st.markdown("### Market & rank-risk"); st.dataframe(squad_df[["Player","Own %","EO proxy","Market","Market %","Captaincy","Rotation","News"]].sort_values("Market %",ascending=False),use_container_width=True,hide_index=True)
+    st.markdown("## Analytics"); st.caption(PAGE_HELP["Analytics"])
+    st.markdown("### Fixture swings"); st.caption("Your squad ranked by near-term fixture favourability — the players whose upcoming run looks toughest or friendliest.")
+    dataframe_with_help(squad_df[["Player","Pos","Team","Fixture score","Fixture swing","Proj 3","Proj 5"]].sort_values("Fixture score",ascending=False),use_container_width=True,hide_index=True)
+    st.markdown("### Market & rank-risk"); st.caption("How owned and 'in-play' each of your players is right now — useful for judging how much overall-rank risk you're carrying.")
+    dataframe_with_help(squad_df[["Player","Own %","EO proxy","Market","Market %","Captaincy","Rotation","News"]].sort_values("Market %",ascending=False),use_container_width=True,hide_index=True)
     if team_form:
         rows=[]
         for tla,data in team_form.items():
             if tla in {t["short_name"] for t in teams_by_id.values()}: rows.append({"Team":tla,"PPG last 5":data["overall"]["ppg"],"GF/game":data["overall"]["gf"],"GA/game":data["overall"]["ga"],"Home GF":data["home"]["gf"],"Away GF":data["away"]["gf"]})
-        st.markdown("### Recent team form"); st.dataframe(pd.DataFrame(rows).sort_values("PPG last 5",ascending=False),use_container_width=True,hide_index=True)
+        st.markdown("### Recent team form"); st.caption("Real-world results form (last 5 matches) for the clubs your players belong to, from the optional football-data.org enrichment.")
+        dataframe_with_help(pd.DataFrame(rows).sort_values("PPG last 5",ascending=False),use_container_width=True,hide_index=True)
     else:
         fd_status=fd_bundle.get("status")
         if fd_status=="rate_limited":
