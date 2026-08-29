@@ -19,6 +19,7 @@ import unicodedata
 import html
 import os
 import io
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
@@ -28,6 +29,16 @@ import requests
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timezone
+
+# Force unbuffered/line-buffered stdout. In a container, Python's print() defaults to
+# block-buffering when stdout isn't a real terminal, so diagnostic prints (startup
+# timings, Understat/H2H failure reasons, etc.) can sit invisible for a long time
+# before enough output accumulates to flush - making the Cloud log viewer look empty
+# even while the app is running fine. This makes every print() show up immediately.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 # ----------------------------------------------------------------------------
 # CONFIG
@@ -405,12 +416,12 @@ def get_understat_players(season_start_year):
     try:
         r = requests.get(url, headers=headers, timeout=(CORE_CONNECT_TIMEOUT, SUPPLEMENTARY_TIMEOUT))
     except requests.exceptions.RequestException as exc:
-        print(f"[FPL Advisor understat] request failed for {url}: {type(exc).__name__}: {exc}")
+        print(f"[FPL Advisor understat] request failed for {url}: {type(exc).__name__}: {exc}", flush=True)
         return {}
     if r.status_code != 200:
         # Understat fronts EPL pages with Cloudflare; data-centre IPs (Streamlit Cloud
         # included) sometimes get a 403/503 challenge page instead of the real page.
-        print(f"[FPL Advisor understat] HTTP {r.status_code} from {url} (first 200 chars: {r.text[:200]!r})")
+        print(f"[FPL Advisor understat] HTTP {r.status_code} from {url} (first 200 chars: {r.text[:200]!r})", flush=True)
         return {}
     match = re.search(r"playersData\s*=\s*JSON\.parse\('(.+?)'\)", r.text)
     if not match:
@@ -421,14 +432,14 @@ def get_understat_players(season_start_year):
         found_vars = re.findall(r"(\w+)\s*=\s*JSON\.parse\(", r.text)
         print(f"[FPL Advisor understat] 'playersData' not found in page for {url}. "
               f"JSON.parse'd variables actually present: {found_vars or 'none found'} - "
-              f"either the season isn't populated yet on Understat, or their page markup changed.")
+              f"either the season isn't populated yet on Understat, or their page markup changed.", flush=True)
         return {}
     try:
         raw = match.group(1).encode("utf-8").decode("unicode_escape").encode("latin1").decode("utf-8")
         players = json.loads(raw)
         return {p["player_name"]: p for p in players}
     except Exception as exc:
-        print(f"[FPL Advisor understat] parsed page but couldn't decode playersData: {type(exc).__name__}: {exc}")
+        print(f"[FPL Advisor understat] parsed page but couldn't decode playersData: {type(exc).__name__}: {exc}", flush=True)
         return {}
 
 
@@ -1694,12 +1705,12 @@ except requests.exceptions.HTTPError as exc:
     st.stop()
 except requests.exceptions.RequestException as exc:
     startup_slot.empty(); startup_rail.empty()
-    print(f"[FPL Advisor startup] FPL request failed: {type(exc).__name__}: {exc}")
+    print(f"[FPL Advisor startup] FPL request failed: {type(exc).__name__}: {exc}", flush=True)
     st.error("The FPL API did not respond within the startup timeout. The app stopped cleanly rather than spinning indefinitely. Try again in a moment.")
     st.stop()
 except Exception as exc:
     startup_slot.empty(); startup_rail.empty()
-    print(f"[FPL Advisor startup] unexpected startup failure: {type(exc).__name__}: {exc}")
+    print(f"[FPL Advisor startup] unexpected startup failure: {type(exc).__name__}: {exc}", flush=True)
     st.exception(exc)
     st.stop()
 finally:
@@ -1738,12 +1749,12 @@ if pre_gw1:
 try:
     picks_started = time.perf_counter()
     picks_data = get_picks(team_id_int, squad_event["id"])
-    print(f"[FPL Advisor startup] picks_gw{squad_event['id']}={time.perf_counter()-picks_started:.3f}s")
+    print(f"[FPL Advisor startup] picks_gw{squad_event['id']}={time.perf_counter()-picks_started:.3f}s", flush=True)
 except requests.exceptions.HTTPError as exc:
-    print(f"[FPL Advisor startup] picks unavailable gw{squad_event['id']} status={getattr(exc.response, 'status_code', None)}")
+    print(f"[FPL Advisor startup] picks unavailable gw{squad_event['id']} status={getattr(exc.response, 'status_code', None)}", flush=True)
     picks_data = None
 except requests.exceptions.RequestException as exc:
-    print(f"[FPL Advisor startup] picks timeout/failure gw{squad_event['id']}: {type(exc).__name__}: {exc}")
+    print(f"[FPL Advisor startup] picks timeout/failure gw{squad_event['id']}: {type(exc).__name__}: {exc}", flush=True)
     picks_data = None
 
 if picks_data is None:
@@ -1781,24 +1792,24 @@ football_data_key = get_secret("FOOTBALL_DATA_API_KEY")
 enrichment_started = time.perf_counter()
 try:
     t0 = time.perf_counter(); understat_players = get_understat_players(season_start_year)
-    print(f"[FPL Advisor enrichment] understat={time.perf_counter()-t0:.3f}s players={len(understat_players)}")
+    print(f"[FPL Advisor enrichment] understat={time.perf_counter()-t0:.3f}s players={len(understat_players)}", flush=True)
 except Exception as exc:
-    print(f"[FPL Advisor enrichment] understat fallback: {type(exc).__name__}: {exc}")
+    print(f"[FPL Advisor enrichment] understat fallback: {type(exc).__name__}: {exc}", flush=True)
 
 by_full, by_last = build_understat_lookup(understat_players)
 
 try:
     t0 = time.perf_counter(); historical_baselines = get_historical_position_baselines()
-    print(f"[FPL Advisor enrichment] historical={time.perf_counter()-t0:.3f}s")
+    print(f"[FPL Advisor enrichment] historical={time.perf_counter()-t0:.3f}s", flush=True)
 except Exception as exc:
-    print(f"[FPL Advisor enrichment] historical fallback: {type(exc).__name__}: {exc}")
+    print(f"[FPL Advisor enrichment] historical fallback: {type(exc).__name__}: {exc}", flush=True)
 
 if football_data_key:
     try:
         t0 = time.perf_counter(); fd_bundle = get_football_data_bundle(football_data_key, season_start_year)
-        print(f"[FPL Advisor enrichment] football-data={time.perf_counter()-t0:.3f}s status={fd_bundle.get('status')}")
+        print(f"[FPL Advisor enrichment] football-data={time.perf_counter()-t0:.3f}s status={fd_bundle.get('status')}", flush=True)
     except Exception as exc:
-        print(f"[FPL Advisor enrichment] football-data fallback: {type(exc).__name__}: {exc}")
+        print(f"[FPL Advisor enrichment] football-data fallback: {type(exc).__name__}: {exc}", flush=True)
         fd_bundle = {"matches": [], "status": "unavailable", "requests_remaining": None}
 
 fd_matches = fd_bundle.get("matches", [])
@@ -1808,9 +1819,9 @@ h2h_bundle = {"matches": [], "status": "not_configured", "seasons": []}
 if football_data_key:
     try:
         t0 = time.perf_counter(); h2h_bundle = get_h2h_seasons_bundle(football_data_key, season_start_year)
-        print(f"[FPL Advisor enrichment] h2h={time.perf_counter()-t0:.3f}s seasons={h2h_bundle.get('seasons')}")
+        print(f"[FPL Advisor enrichment] h2h={time.perf_counter()-t0:.3f}s seasons={h2h_bundle.get('seasons')}", flush=True)
     except Exception as exc:
-        print(f"[FPL Advisor enrichment] h2h fallback: {type(exc).__name__}: {exc}")
+        print(f"[FPL Advisor enrichment] h2h fallback: {type(exc).__name__}: {exc}", flush=True)
         h2h_bundle = {"matches": [], "status": "unavailable", "seasons": []}
 h2h_lookup = build_h2h_lookup(h2h_bundle.get("matches", []))
 
@@ -1818,7 +1829,7 @@ expert_rows_all = load_expert_consensus()
 expert_by_full, expert_by_last = build_expert_lookup(expert_rows_all)
 expert_gws_found = [v["gameweek"] for v in expert_rows_all.values() if v.get("gameweek")]
 expert_as_of_gw = max(expert_gws_found) if expert_gws_found else None
-print(f"[FPL Advisor enrichment] total={time.perf_counter()-enrichment_started:.3f}s")
+print(f"[FPL Advisor enrichment] total={time.perf_counter()-enrichment_started:.3f}s", flush=True)
 bank=safe_float(picks_data.get("entry_history",{}).get("bank"),0)/10; squad_value=safe_float(picks_data.get("entry_history",{}).get("value"),0)/10; overall_rank=entry.get("summary_overall_rank")
 
 with st.sidebar:
