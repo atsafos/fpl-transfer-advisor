@@ -108,7 +108,7 @@ COLUMN_HELP = {
     "EO proxy": "Estimated effective ownership — approximates true captained/owned exposure using ownership % plus explosive-returns potential; higher means more rank risk if they blank, more rank protection if they haul.",
     "Market": "Transfer-market momentum label for this Gameweek: Hot buy / Buying pressure / Stable / Selling pressure / Heavy selling.",
     "Market %": "Net transfers in minus out this Gameweek, as a % of all FPL managers.",
-    "Advisor score": "This app's single blended strategy score — combines form, projections, fixtures, xGI/90, availability, minutes, value, set pieces, bonus/BPS, defensive contribution, ownership and market momentum, weighted by your chosen Strategy and Risk appetite.",
+    "Advisor score": "This app's single blended strategy score — combines form, projections, fixtures, xGI/90, availability, minutes, value, set pieces, bonus/BPS, defensive contribution, ownership, market momentum, xG-performance (buy-low/regression-risk) and head-to-head history, weighted by your chosen Strategy and Risk appetite.",
     "Upgrade": "Advisor-score improvement versus the player you're comparing against (a candidate's score minus the outgoing player's score).",
     "Flags": "Plain-language reasons this player is flagged for review (news, poor form, fixtures, rotation risk, etc). 'No major issues' means nothing stood out.",
     "News": "Latest official FPL team news string for this player (injuries, suspensions, press-conference notes).",
@@ -143,6 +143,9 @@ COLUMN_HELP = {
     "Away GF": "Goals scored per game in recent away matches.",
     "PPG last 5": "Points per game (3 for a win, 1 for a draw) across the team's last 5 completed matches.",
     "Metric": "The stat being compared between the two players in this row.",
+    "xG Δ/90": "Actual (goals + assists) minus expected (xG + xA), per 90 minutes, using FPL's own official season-total expected-stats. Positive = scoring above their underlying chances (returns may cool off — regression risk). Negative = creating/getting into good positions without the goals/assists yet (potential buy-low).",
+    "Regression note": "Plain-language read on whether this player's actual returns (or, for GKP/DEF, actual goals conceded) are running hot or cold relative to their expected numbers (xG/xA/xGC) — the standard 'is this sustainable' signal.",
+    "Next opp H2H": "This player's team's head-to-head record against their next opponent, from up to the last 3 completed Premier League seasons: points-per-game across those meetings, and how many meetings were found. 🟢 = strong record (≥2.0 PPG), 🔴 = weak record (≤0.8 PPG), ⚪ = roughly even. Needs at least 2 prior meetings to show a record.",
 }
 
 # One-line description of every workspace tab, shown in the sidebar and as a caption
@@ -395,19 +398,31 @@ def get_understat_players(season_start_year):
     approach (e.g. the `understat` / `understatapi` PyPI packages) of reading the JSON
     that the page embeds for its own charts. Public page, no login, no paywall.
     Returns {} gracefully if the page shape changes or the site is unreachable -
-    Understat data is a bonus layer, never a hard dependency."""
+    Understat data is a bonus layer, never a hard dependency - but always prints the
+    specific reason to the app logs so a silent {} doesn't turn into a silent mystery."""
+    url = f"https://understat.com/league/EPL/{season_start_year}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
     try:
-        url = f"https://understat.com/league/EPL/{season_start_year}"
-        headers = {"User-Agent": "Mozilla/5.0 (FPL-Transfer-Advisor personal tool)"}
         r = requests.get(url, headers=headers, timeout=(CORE_CONNECT_TIMEOUT, SUPPLEMENTARY_TIMEOUT))
-        r.raise_for_status()
-        match = re.search(r"playersData\s*=\s*JSON\.parse\('(.+?)'\)", r.text)
-        if not match:
-            return {}
+    except requests.exceptions.RequestException as exc:
+        print(f"[FPL Advisor understat] request failed for {url}: {type(exc).__name__}: {exc}")
+        return {}
+    if r.status_code != 200:
+        # Understat fronts EPL pages with Cloudflare; data-centre IPs (Streamlit Cloud
+        # included) sometimes get a 403/503 challenge page instead of the real page.
+        print(f"[FPL Advisor understat] HTTP {r.status_code} from {url} (first 200 chars: {r.text[:200]!r})")
+        return {}
+    match = re.search(r"playersData\s*=\s*JSON\.parse\('(.+?)'\)", r.text)
+    if not match:
+        print(f"[FPL Advisor understat] 'playersData' not found in page for {url} - "
+              f"either the season isn't populated yet on Understat, or their page markup changed.")
+        return {}
+    try:
         raw = match.group(1).encode("utf-8").decode("unicode_escape").encode("latin1").decode("utf-8")
         players = json.loads(raw)
         return {p["player_name"]: p for p in players}
-    except Exception:
+    except Exception as exc:
+        print(f"[FPL Advisor understat] parsed page but couldn't decode playersData: {type(exc).__name__}: {exc}")
         return {}
 
 
@@ -663,6 +678,48 @@ def blended_xgi90(p, understat_match):
     return 0.0, "Unavailable"
 
 
+def xg_performance(p, understat_match):
+    """Actual FPL attacking returns vs expected (xG+xA), and actual vs expected goals
+    conceded for goalkeepers/defenders - the standard 'regression to the mean' read.
+    Overperformers (scoring, or keeping clean sheets, well clear of what their chances/
+    xGC suggest) tend to cool off; underperformers tend to start converting. Uses FPL's
+    own official expected-stats totals, which the game exposes for every player, so this
+    needs no extra network call and works even when Understat is unreachable.
+    """
+    mins = safe_float(p.get("minutes"), 0)
+    pos = int(p.get("element_type", 0) or 0)
+    if mins < 180:
+        return {"attack_delta90": 0.0, "defence_delta90": 0.0, "label": "Not enough minutes yet", "tag": "neutral"}
+
+    actual_attack = safe_float(p.get("goals_scored"), 0) + safe_float(p.get("assists"), 0)
+    expected_attack = safe_float(p.get("expected_goals"), 0) + safe_float(p.get("expected_assists"), 0)
+    if expected_attack <= 0 and understat_match:
+        # FPL hasn't exposed season xG/xA yet (early season) - fall back to Understat's.
+        expected_attack = safe_float(understat_match.get("xG"), 0) + safe_float(understat_match.get("xA"), 0)
+    attack_delta90 = round((actual_attack - expected_attack) / mins * 90, 2) if expected_attack or actual_attack else 0.0
+
+    defence_delta90 = 0.0
+    if pos in (1, 2):
+        expected_conceded = safe_float(p.get("expected_goals_conceded"), 0)
+        if expected_conceded > 0:
+            actual_conceded = safe_float(p.get("goals_conceded"), 0)
+            # positive = conceding FEWER than the model expected (a clean-sheet run that may not hold)
+            defence_delta90 = round((expected_conceded - actual_conceded) / mins * 90, 2)
+
+    if pos in (1, 2) and abs(defence_delta90) >= 0.08 and abs(defence_delta90) >= abs(attack_delta90):
+        if defence_delta90 <= -0.08:
+            label, tag = "Conceding more than expected — clean sheets look due for improvement", "underperforming"
+        else:
+            label, tag = "Conceding fewer than expected — clean-sheet run looks fragile", "overperforming"
+    elif attack_delta90 <= -0.12:
+        label, tag = "Goals/assists below expected — chances not yet converting", "underperforming"
+    elif attack_delta90 >= 0.12:
+        label, tag = "Goals/assists above expected — returns may cool off", "overperforming"
+    else:
+        label, tag = "Returns roughly match underlying numbers", "neutral"
+    return {"attack_delta90": attack_delta90, "defence_delta90": defence_delta90, "label": label, "tag": tag}
+
+
 def set_piece_profile(p):
     """Use official FPL set-piece order fields when present in bootstrap-static."""
     pens = p.get("penalties_order")
@@ -761,7 +818,7 @@ def player_fpl_components(p, fixtures, teams_by_id, from_event, n_fixtures, unde
     }
 
 
-def recommendation_reasons(candidate, comps):
+def recommendation_reasons(candidate, comps, perf=None):
     reasons = []
     if comps["fixture_score"] >= 3.8:
         reasons.append("strong position-adjusted fixtures")
@@ -779,6 +836,8 @@ def recommendation_reasons(candidate, comps):
         reasons.append("captaincy upside")
     if safe_float(candidate.get("form"), 0) >= 4:
         reasons.append("good recent form")
+    if perf and perf["tag"] == "underperforming":
+        reasons.append(f'buy-low: {perf["label"].lower()}')
     return reasons[:4]
 
 
@@ -902,6 +961,11 @@ def player_score(p, avg_fdr, understat_match, total_players, strategy="Balanced"
         raw += 0.04 * (comps["captaincy"] - 2.5)
 
     raw += ownership_strategy_adjustment(p, strategy)
+    perf = xg_performance(p, understat_match)
+    if perf["tag"] == "underperforming":
+        raw += 0.14  # buy-low nudge: process (chances/defensive numbers) ahead of results
+    elif perf["tag"] == "overperforming":
+        raw -= 0.14  # regression-risk nudge: results currently running hotter than process
     return round(raw, 2)
 
 def confidence_label(score_delta, candidate):
@@ -915,7 +979,7 @@ def confidence_label(score_delta, candidate):
     return "LOW"
 
 
-def flag_reasons(p, avg_fdr):
+def flag_reasons(p, avg_fdr, perf=None):
     reasons = []
     if p["status"] in ("i", "s", "u"):
         reasons.append(f"⛔ {STATUS_LABELS.get(p['status'], p['status'])}" + (f" — {p['news']}" if p["news"] else ""))
@@ -928,6 +992,8 @@ def flag_reasons(p, avg_fdr):
         reasons.append(f"📉 Poor recent form ({form} vs {ppg} season PPG)")
     if avg_fdr is not None and avg_fdr >= 3.8:
         reasons.append(f"🗓️ Tough run of fixtures (avg FDR {avg_fdr:.1f}/5)")
+    if perf and perf["tag"] == "overperforming":
+        reasons.append(f"🎲 {perf['label']}")
     return reasons
 
 
@@ -939,6 +1005,7 @@ def flag_reasons(p, avg_fdr):
 FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
 FOOTBALL_DATA_TTL = 6 * 3600  # recent results/form only need a few refreshes per day
 HISTORICAL_TTL = 24 * 3600
+H2H_SEASONS_TTL = 7 * 24 * 3600  # completed-season results never change; a weekly refresh is plenty
 
 def get_secret(name, default=""):
     try:
@@ -1023,6 +1090,101 @@ def get_football_data_bundle(api_key, season_start_year):
             "requests_remaining": None, "reset_seconds": None,
             "fetched_at": fetched_at, "error": str(exc),
         }
+
+
+@st.cache_data(ttl=H2H_SEASONS_TTL, show_spinner=False)
+def get_h2h_seasons_bundle(api_key, season_start_year, n_seasons=3):
+    """Fetches full-season Premier League results for the `n_seasons` most recently
+    *completed* seasons (i.e. not the current in-progress one) - the raw material for
+    head-to-head history. Same optional, rate-limit-aware football-data.org token as the
+    live enrichment above, just cached for a week since finished-season results are
+    permanent. If the free-tier token can't reach that far back, or requests run out
+    partway through, it simply returns however many seasons it managed - head-to-head
+    adjustments degrade gracefully to 0 rather than failing.
+    """
+    if not api_key:
+        return {"matches": [], "status": "not_configured", "seasons": []}
+    all_matches, seasons_fetched = [], []
+    for offset in range(1, n_seasons + 1):
+        yr = season_start_year - offset
+        try:
+            response = requests.get(
+                f"{FOOTBALL_DATA_BASE}/competitions/PL/matches",
+                params={"season": int(yr)},
+                headers={"X-Auth-Token": api_key},
+                timeout=(CORE_CONNECT_TIMEOUT, SUPPLEMENTARY_TIMEOUT),
+            )
+            if response.status_code == 429:
+                break
+            if response.status_code in (401, 403):
+                return {"matches": all_matches, "status": "auth_error", "seasons": seasons_fetched}
+            if response.status_code == 404:
+                continue  # that far back isn't available on this plan/season - skip, don't fail
+            response.raise_for_status()
+            all_matches.extend(response.json().get("matches", []))
+            seasons_fetched.append(yr)
+        except requests.exceptions.RequestException:
+            break
+        except (ValueError, TypeError):
+            break
+    status = "ok" if seasons_fetched else "unavailable"
+    return {"matches": all_matches, "status": status, "seasons": seasons_fetched}
+
+
+def build_h2h_lookup(matches):
+    """{team_short: {opponent_short: {n, ppg, gf, ga, win_rate}}} aggregated across every
+    FINISHED match found, home and away combined, from the team's own perspective."""
+    raw = defaultdict(list)
+    for m in matches or []:
+        if m.get("status") != "FINISHED":
+            continue
+        h = m.get("homeTeam", {}).get("tla") or ""
+        a = m.get("awayTeam", {}).get("tla") or ""
+        score = m.get("score", {}).get("fullTime", {})
+        hg, ag = score.get("home"), score.get("away")
+        if not h or not a or hg is None or ag is None:
+            continue
+        raw[(h, a)].append((hg, ag))
+        raw[(a, h)].append((ag, hg))
+    lookup = defaultdict(dict)
+    for (team, opp), rows in raw.items():
+        n = len(rows)
+        pts = sum(3 if gf > ga else 1 if gf == ga else 0 for gf, ga in rows)
+        wins = sum(1 for gf, ga in rows if gf > ga)
+        lookup[team][opp] = {
+            "n": n,
+            "ppg": round(pts / n, 2),
+            "gf": round(sum(gf for gf, ga in rows) / n, 2),
+            "ga": round(sum(ga for gf, ga in rows) / n, 2),
+            "win_rate": round(wins / n, 2),
+        }
+    return lookup
+
+
+def h2h_fixture_adjustment(team_short, opp_short, position_id, h2h_lookup):
+    """Small, bounded nudge to a single fixture's projection from that team's own
+    head-to-head record specifically against this opponent over the tracked seasons.
+    Requires at least 2 prior meetings before it applies anything, so one freak
+    scoreline can't skew a projection."""
+    rec = (h2h_lookup or {}).get(team_short, {}).get(opp_short)
+    if not rec or rec["n"] < 2:
+        return 0.0
+    if position_id in (3, 4):  # MID/FWD: this team's own scoring history vs this opponent
+        return max(-0.30, min(0.30, (rec["gf"] - 1.35) * 0.22))
+    return max(-0.30, min(0.30, (1.35 - rec["ga"]) * 0.22))  # GKP/DEF: fewer conceded here historically is good
+
+
+def h2h_summary(own_short, next_fixture_details, h2h_lookup):
+    """One-line human-readable head-to-head note for a team's very next fixture,
+    e.g. '🟢 vs ARS: 2.3 PPG (6 mtgs)'. Used in tables/analytics, not the model itself."""
+    if not next_fixture_details:
+        return "No upcoming fixture"
+    d = next_fixture_details[0]
+    rec = (h2h_lookup or {}).get(own_short, {}).get(d["opp"])
+    if not rec or rec["n"] < 2:
+        return f'vs {d["opp"]}: no h2h history'
+    edge = "🟢" if rec["ppg"] >= 2.0 else "🔴" if rec["ppg"] <= 0.8 else "⚪"
+    return f'{edge} vs {d["opp"]}: {rec["ppg"]:.1f} PPG ({rec["n"]} mtgs)'
 
 @st.cache_data(ttl=HISTORICAL_TTL, show_spinner=False)
 def get_historical_position_baselines():
@@ -1370,22 +1532,22 @@ def team_form_fixture_adjustment(opp_short,is_home,position_id,team_form):
     if position_id in (3,4):return max(-.35,min(.35,(opp["ga"]-1.35)*.25))
     return max(-.35,min(.35,(1.35-opp["gf"])*.25))
 
-def event_projection(p,event_id,fixtures,teams_by_id,understat_match,historical_baselines,team_form=None):
+def event_projection(p,event_id,fixtures,teams_by_id,understat_match,historical_baselines,team_form=None,h2h_lookup=None):
     pos=int(p.get("element_type",0) or 0); details=[d for d in fixture_details(p["team"],fixtures,event_id,n=12) if d["event"]==event_id]
     if not details:return 0.0
     xgi90,_=blended_xgi90(p,understat_match); mins=minutes_security_score(p); minutes_factor=max(.25,min(1.0,mins/5)); availability=1.0 if p.get("status")=="a" else .55 if p.get("status")=="d" else .05
-    key=POSITION_MAP.get(pos,"MID"); hist=historical_baselines.get(key,historical_baselines.get("GK" if key=="GKP" else key,3.8)); form=safe_float(p.get("form"),hist); ppg=safe_float(p.get("points_per_game"),hist); ep=safe_float(p.get("ep_next"),0); sp,_=set_piece_profile(p); bonus=bonus_bps_score(p); defensive=defensive_upside_score(p)
+    key=POSITION_MAP.get(pos,"MID"); hist=historical_baselines.get(key,historical_baselines.get("GK" if key=="GKP" else key,3.8)); form=safe_float(p.get("form"),hist); ppg=safe_float(p.get("points_per_game"),hist); ep=safe_float(p.get("ep_next"),0); sp,_=set_piece_profile(p); bonus=bonus_bps_score(p); defensive=defensive_upside_score(p); own_short=teams_by_id.get(p["team"],{}).get("short_name","")
     total=0.0
     for d in details:
-        ease=6.0-d["fdr"]; form_adj=team_form_fixture_adjustment(d["opp"],d["home"],pos,team_form or {}); appearance=1.75*minutes_factor
+        ease=6.0-d["fdr"]; form_adj=team_form_fixture_adjustment(d["opp"],d["home"],pos,team_form or {}); h2h_adj=h2h_fixture_adjustment(own_short,d["opp"],pos,h2h_lookup); appearance=1.75*minutes_factor
         attack_mult=3.2 if pos==3 else 2.9 if pos==4 else 2.0 if pos==2 else .4; attack=min(5.0,xgi90*attack_mult*(.86+ease*.055))
         defend=max(0.0,(ease-1.6)*.55+(defensive-2.5)*.22) if pos in (1,2) else max(0.0,(ease-2.0)*.10) if pos==3 else 0.0
         prior=.30*hist+.35*min(8,ppg)+.20*min(8,form)+(.25*ep if event_id==st.session_state.get("next_event_id") else 0)
-        total+=max(0.0,appearance+attack+defend+(ease-3)*.22+form_adj+.12*sp+.11*bonus+.28*prior)*availability
+        total+=max(0.0,appearance+attack+defend+(ease-3)*.22+form_adj+h2h_adj+.12*sp+.11*bonus+.28*prior)*availability
     return round(total,1)
 
-def projected_horizon(p,start_event,horizon,fixtures,teams_by_id,understat_match,historical_baselines,team_form=None):
-    vals=[event_projection(p,ev,fixtures,teams_by_id,understat_match,historical_baselines,team_form) for ev in range(start_event,start_event+horizon)]
+def projected_horizon(p,start_event,horizon,fixtures,teams_by_id,understat_match,historical_baselines,team_form=None,h2h_lookup=None):
+    vals=[event_projection(p,ev,fixtures,teams_by_id,understat_match,historical_baselines,team_form,h2h_lookup) for ev in range(start_event,start_event+horizon)]
     return round(sum(vals),1),vals
 
 def optimal_starting_xi(rows):
@@ -1397,7 +1559,7 @@ def chip_recommendations(rows,gw,free_transfers):
     expiry="before GW19" if gw<=19 else "before season end"; bench_strength=sum(sorted([r.get("Proj GW1",0) for r in rows],reverse=True)[11:15]); cap=max([r.get("Captaincy",0) for r in rows] or [0]); flagged=sum(bool(r.get("Needs attention")) for r in rows)
     return {"Wildcard":(("CONSIDER" if flagged>=5 and free_transfers<=2 else "WATCH" if flagged>=3 else "HOLD"),f"{flagged} squad issues · chip set expires {expiry}."),"Bench Boost":(("CONSIDER" if bench_strength>=13 else "WATCH" if bench_strength>=9 else "HOLD"),f"Bench projects about {bench_strength:.1f} points."),"Triple Captain":(("CONSIDER" if cap>=4.6 else "WATCH" if cap>=4.1 else "HOLD"),f"Best captaincy signal {cap:.1f}/5."),"Free Hit":(("WATCH" if sum(r.get("Proj GW1",0)==0 for r in rows)>=3 else "HOLD"),"Best reserved for major blank/double disruption.")}
 
-def build_replacement_candidates(outgoing_row,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,event_id,by_full,by_last,total_players,strategy,risk,n_fixtures,reserve_bank,bank,min_minutes,include_doubtful,hist,team_form,limit=12):
+def build_replacement_candidates(outgoing_row,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,event_id,by_full,by_last,total_players,strategy,risk,n_fixtures,reserve_bank,bank,min_minutes,include_doubtful,hist,team_form,limit=12,h2h_lookup=None):
     outgoing=players_by_id[outgoing_row["id"]]; budget=outgoing_row["Sell price"]+max(0,bank-reserve_bank); squad_ids=set(squad_df["id"]); team_counts=squad_df["Team"].value_counts().to_dict(); out=[]
     for cand in bootstrap["elements"]:
         if cand["id"] in squad_ids or cand["element_type"]!=outgoing["element_type"]:continue
@@ -1408,8 +1570,8 @@ def build_replacement_candidates(outgoing_row,bootstrap,squad_df,players_by_id,t
         if cand.get("status") in ("i","s","u","n") or (cand.get("status")=="d" and not include_doubtful):continue
         mins=minutes_security_score(cand)
         if mins<min_minutes:continue
-        avg,fx=team_fixture_difficulty(cand["team"],fixtures,event_id,n=n_fixtures); us=match_understat(cand,by_full,by_last); comps=player_fpl_components(cand,fixtures,teams_by_id,event_id,n_fixtures,us); score=player_score(cand,avg,us,total_players,strategy,risk,fixtures,teams_by_id,event_id,n_fixtures); p1,_=projected_horizon(cand,event_id,1,fixtures,teams_by_id,us,hist,team_form); p3,_=projected_horizon(cand,event_id,3,fixtures,teams_by_id,us,hist,team_form); p5,_=projected_horizon(cand,event_id,5,fixtures,teams_by_id,us,hist,team_form); market,mp=market_pressure(cand,total_players)
-        out.append({"id":cand["id"],"Player":cand["web_name"],"Team":short,"Cost":cost,"Score":score,"Upgrade":round(score-outgoing_row["Advisor score"],2),"Proj GW1":p1,"Proj 3":p3,"Proj 5":p5,"xGI/90":comps["xgi90"],"Minutes":mins,"Captaincy":comps["captaincy"],"Own %":safe_float(cand.get("selected_by_percent"),0),"Market":market,"Market %":mp,"Reasons":recommendation_reasons(cand,comps),"Confidence":confidence_label(round(score-outgoing_row["Advisor score"],2),cand),"fixture_details":fixture_details(cand["team"],fixtures,event_id,n=n_fixtures)})
+        avg,fx=team_fixture_difficulty(cand["team"],fixtures,event_id,n=n_fixtures); us=match_understat(cand,by_full,by_last); comps=player_fpl_components(cand,fixtures,teams_by_id,event_id,n_fixtures,us); score=player_score(cand,avg,us,total_players,strategy,risk,fixtures,teams_by_id,event_id,n_fixtures); p1,_=projected_horizon(cand,event_id,1,fixtures,teams_by_id,us,hist,team_form,h2h_lookup); p3,_=projected_horizon(cand,event_id,3,fixtures,teams_by_id,us,hist,team_form,h2h_lookup); p5,_=projected_horizon(cand,event_id,5,fixtures,teams_by_id,us,hist,team_form,h2h_lookup); market,mp=market_pressure(cand,total_players); perf=xg_performance(cand,us); h2h_note=h2h_summary(short,fixture_details(cand["team"],fixtures,event_id,n=1),h2h_lookup)
+        out.append({"id":cand["id"],"Player":cand["web_name"],"Team":short,"Cost":cost,"Score":score,"Upgrade":round(score-outgoing_row["Advisor score"],2),"Proj GW1":p1,"Proj 3":p3,"Proj 5":p5,"xGI/90":comps["xgi90"],"xG Δ/90":perf["attack_delta90"],"Regression note":perf["label"],"Next opp H2H":h2h_note,"Minutes":mins,"Captaincy":comps["captaincy"],"Own %":safe_float(cand.get("selected_by_percent"),0),"Market":market,"Market %":mp,"Reasons":recommendation_reasons(cand,comps,perf),"Confidence":confidence_label(round(score-outgoing_row["Advisor score"],2),cand),"fixture_details":fixture_details(cand["team"],fixtures,event_id,n=n_fixtures)})
     return sorted(out,key=lambda r:(r["Proj 5"],r["Upgrade"]),reverse=True)[:limit]
 
 
@@ -1583,6 +1745,16 @@ if football_data_key:
 
 fd_matches = fd_bundle.get("matches", [])
 team_form = build_team_form(fd_matches)
+
+h2h_bundle = {"matches": [], "status": "not_configured", "seasons": []}
+if football_data_key:
+    try:
+        t0 = time.perf_counter(); h2h_bundle = get_h2h_seasons_bundle(football_data_key, season_start_year)
+        print(f"[FPL Advisor enrichment] h2h={time.perf_counter()-t0:.3f}s seasons={h2h_bundle.get('seasons')}")
+    except Exception as exc:
+        print(f"[FPL Advisor enrichment] h2h fallback: {type(exc).__name__}: {exc}")
+        h2h_bundle = {"matches": [], "status": "unavailable", "seasons": []}
+h2h_lookup = build_h2h_lookup(h2h_bundle.get("matches", []))
 print(f"[FPL Advisor enrichment] total={time.perf_counter()-enrichment_started:.3f}s")
 bank=safe_float(picks_data.get("entry_history",{}).get("bank"),0)/10; squad_value=safe_float(picks_data.get("entry_history",{}).get("value"),0)/10; overall_rank=entry.get("summary_overall_rank")
 
@@ -1630,6 +1802,13 @@ with st.sidebar:
             st.caption("football-data.org · Temporarily unavailable")
         else:
             st.caption("football-data.org · Optional")
+        h2h_seasons_found=h2h_bundle.get("seasons",[])
+        if h2h_seasons_found:
+            st.caption(f"Head-to-head history · {len(h2h_seasons_found)} season(s) loaded · weekly cache")
+        elif football_data_key:
+            st.caption("Head-to-head history · Unavailable this session")
+        else:
+            st.caption("Head-to-head history · Optional (needs football-data.org token)")
         if st.checkbox("Show startup diagnostics", value=False, key="show_startup_diagnostics"):
             st.caption("Core FPL calls are fetched in parallel and cached for 30 minutes.")
             for name in ("bootstrap", "fixtures", "entry", "history", "total"):
@@ -1640,10 +1819,10 @@ with st.sidebar:
 
 squad_rows=[]
 for pick in picks_data["picks"]:
-    p=players_by_id[pick["element"]]; avg_fdr,fixture_str=team_fixture_difficulty(p["team"],fixtures,upcoming_event["id"],n=n_fixtures); us=match_understat(p,by_full,by_last); comps=player_fpl_components(p,fixtures,teams_by_id,upcoming_event["id"],n_fixtures,us); score=player_score(p,avg_fdr,us,total_players_in_game,strategy,risk_appetite,fixtures,teams_by_id,upcoming_event["id"],n_fixtures); p1,_=projected_horizon(p,upcoming_event["id"],1,fixtures,teams_by_id,us,historical_baselines,team_form); p3,_=projected_horizon(p,upcoming_event["id"],3,fixtures,teams_by_id,us,historical_baselines,team_form); p5,_=projected_horizon(p,upcoming_event["id"],5,fixtures,teams_by_id,us,historical_baselines,team_form); _,_,_,swing_label=fixture_window(p["team"],fixtures,teams_by_id,upcoming_event["id"],p["element_type"]); market,market_pct=market_pressure(p,total_players_in_game); short=teams_by_id[p["team"]]["short_name"]; rot=rotation_risk(p,congestion_score(p["team"],fixtures,upcoming_event["id"],5,caution_clubs,short)); reasons=flag_reasons(p,avg_fdr)
+    p=players_by_id[pick["element"]]; avg_fdr,fixture_str=team_fixture_difficulty(p["team"],fixtures,upcoming_event["id"],n=n_fixtures); us=match_understat(p,by_full,by_last); comps=player_fpl_components(p,fixtures,teams_by_id,upcoming_event["id"],n_fixtures,us); score=player_score(p,avg_fdr,us,total_players_in_game,strategy,risk_appetite,fixtures,teams_by_id,upcoming_event["id"],n_fixtures); p1,_=projected_horizon(p,upcoming_event["id"],1,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup); p3,_=projected_horizon(p,upcoming_event["id"],3,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup); p5,_=projected_horizon(p,upcoming_event["id"],5,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup); _,_,_,swing_label=fixture_window(p["team"],fixtures,teams_by_id,upcoming_event["id"],p["element_type"]); market,market_pct=market_pressure(p,total_players_in_game); short=teams_by_id[p["team"]]["short_name"]; rot=rotation_risk(p,congestion_score(p["team"],fixtures,upcoming_event["id"],5,caution_clubs,short)); perf=xg_performance(p,us); h2h_note=h2h_summary(short,fixture_details(p["team"],fixtures,upcoming_event["id"],n=1),h2h_lookup); reasons=flag_reasons(p,avg_fdr,perf)
     if rot>=3: reasons.append("⏱ Rotation/congestion risk")
     needs=bool(reasons) or (safe_float(p.get("form"),0)<2.5 and safe_float(p.get("minutes"),0)>0); sell=safe_float(pick.get("selling_price",p.get("now_cost",0)),0)/10
-    squad_rows.append({"id":p["id"],"Pos":POSITION_MAP[p["element_type"]],"Player":p["web_name"],"Team":short,"Price":safe_float(p.get("now_cost"),0)/10,"Sell price":sell,"Form":safe_float(p.get("form"),0),"Status":STATUS_LABELS.get(p.get("status"),p.get("status")),"Fixtures":fixture_str,"Fixture score":comps["fixture_score"],"Fixture swing":swing_label,"xGI/90":comps["xgi90"],"Set pieces":", ".join(comps["set_piece_badges"]) or "—","Minutes":minutes_security_score(p),"Bonus":comps["bonus_bps"],"DC":comps["defensive_contribution"],"Captaincy":comps["captaincy"],"Own %":safe_float(p.get("selected_by_percent"),0),"EO proxy":eo_proxy(p,comps),"Market":market,"Market %":market_pct,"Rotation":rot,"Proj GW1":p1,"Proj 3":p3,"Proj 5":p5,"Advisor score":score,"Needs attention":needs,"Flags":" · ".join(reasons) if reasons else "No major issues","News":p.get("news") or "","fixture_details":fixture_details(p["team"],fixtures,upcoming_event["id"],n=n_fixtures)})
+    squad_rows.append({"id":p["id"],"Pos":POSITION_MAP[p["element_type"]],"Player":p["web_name"],"Team":short,"Price":safe_float(p.get("now_cost"),0)/10,"Sell price":sell,"Form":safe_float(p.get("form"),0),"Status":STATUS_LABELS.get(p.get("status"),p.get("status")),"Fixtures":fixture_str,"Fixture score":comps["fixture_score"],"Fixture swing":swing_label,"xGI/90":comps["xgi90"],"xG Δ/90":perf["attack_delta90"],"Regression note":perf["label"],"Next opp H2H":h2h_note,"Set pieces":", ".join(comps["set_piece_badges"]) or "—","Minutes":minutes_security_score(p),"Bonus":comps["bonus_bps"],"DC":comps["defensive_contribution"],"Captaincy":comps["captaincy"],"Own %":safe_float(p.get("selected_by_percent"),0),"EO proxy":eo_proxy(p,comps),"Market":market,"Market %":market_pct,"Rotation":rot,"Proj GW1":p1,"Proj 3":p3,"Proj 5":p5,"Advisor score":score,"Needs attention":needs,"Flags":" · ".join(reasons) if reasons else "No major issues","News":p.get("news") or "","fixture_details":fixture_details(p["team"],fixtures,upcoming_event["id"],n=n_fixtures)})
 squad_df=pd.DataFrame(squad_rows); xi,bench_rows,cap_pair=optimal_starting_xi(squad_rows); flagged=squad_df[squad_df["Needs attention"]].sort_values("Advisor score"); best_cap=cap_pair[0] if cap_pair else None; strongest_swing=max(squad_rows,key=lambda r:r["Fixture score"]) if squad_rows else None; hot_market=max(squad_rows,key=lambda r:r["Market %"]) if squad_rows else None
 if len(flagged)==0: action_state,action_title,action_copy="ROLL","Your squad looks stable","No urgent issue stands out. Banking flexibility is a credible move this Gameweek."
 elif len(flagged)<=2: action_state,action_title,action_copy="WATCH","There are one or two decisions worth monitoring","Check late team news before using a transfer; don't force a marginal move."
@@ -1670,7 +1849,7 @@ if page=="Home":
 elif page=="Transfers":
     st.markdown("## Transfer Lab"); st.caption(PAGE_HELP["Transfers"]+" One-transfer recommendations first; then a two-transfer budget restructure.")
     outgoing_name=st.selectbox("Player to review",squad_df.sort_values(["Needs attention","Advisor score"],ascending=[False,True])["Player"].tolist()); outgoing=squad_df[squad_df["Player"]==outgoing_name].iloc[0]
-    candidates=build_replacement_candidates(outgoing,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,bank,min_minutes_security,include_doubtful,historical_baselines,team_form,15)
+    candidates=build_replacement_candidates(outgoing,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,bank,min_minutes_security,include_doubtful,historical_baselines,team_form,15,h2h_lookup)
     if candidates:
         best=candidates[0]; gain=best["Proj 5"]-outgoing["Proj 5"]
         st.markdown(f'<div class="decision-banner"><span class="tag">BEST 1-TRANSFER MOVE</span><h2>{html.escape(outgoing_name)} → {html.escape(best["Player"])}</h2><p>Projected five-Gameweek gain <b>{gain:+.1f} pts</b> · advisor upgrade {best["Upgrade"]:+.2f}.</p></div>',unsafe_allow_html=True)
@@ -1678,7 +1857,7 @@ elif page=="Transfers":
         for i,cand in enumerate(candidates[:3]):
             with cols[i]:
                 reasons=" · ".join(cand["Reasons"][:3]) or "Balanced profile"; st.markdown(f'<div class="transfer-card {"best" if i==0 else ""}"><div class="fpl-eyebrow">#{i+1} target</div><h3>{html.escape(cand["Player"])}</h3><div><span class="pill">{cand["Team"]}</span><span class="pill">£{cand["Cost"]:.1f}m</span><span class="pill pill-cyan">5GW {cand["Proj 5"]:.1f}</span></div>{fixture_chips_html(cand["fixture_details"],5)}<p><span class="proj-badge">GW {cand["Proj GW1"]:.1f}</span><span class="proj-badge">3GW {cand["Proj 3"]:.1f}</span></p><p style="font-size:.8rem;color:#655d69">{html.escape(reasons)}</p></div>',unsafe_allow_html=True)
-        dataframe_with_help(pd.DataFrame(candidates)[["Player","Team","Cost","Proj GW1","Proj 3","Proj 5","xGI/90","Minutes","Captaincy","Own %","Market","Upgrade"]],use_container_width=True,hide_index=True)
+        dataframe_with_help(pd.DataFrame(candidates)[["Player","Team","Cost","Proj GW1","Proj 3","Proj 5","xGI/90","xG Δ/90","Next opp H2H","Minutes","Captaincy","Own %","Market","Upgrade"]],use_container_width=True,hide_index=True)
     else: st.warning("No legal replacement fits the current filters and budget.")
     st.markdown("### Two-transfer squad optimiser"); st.caption("Tests pairs of your weakest-projected players against affordable replacements — including 'enabler' downgrades that free up budget for a premium elsewhere — and ranks plans by combined five-Gameweek gain.")
     plans=[]; pool=squad_df.sort_values(["Needs attention","Proj 5"],ascending=[False,True]).head(6)
@@ -1691,8 +1870,8 @@ elif page=="Transfers":
             # a cheap downgrade in one slot to unlock a premium in the other.
             search_bank_1=max(0.0,funds-r1["Sell price"]+reserve_bank)
             search_bank_2=max(0.0,funds-r2["Sell price"]+reserve_bank)
-            c1=build_replacement_candidates(r1,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,search_bank_1,min_minutes_security,include_doubtful,historical_baselines,team_form,7)
-            c2=build_replacement_candidates(r2,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,search_bank_2,min_minutes_security,include_doubtful,historical_baselines,team_form,7)
+            c1=build_replacement_candidates(r1,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,search_bank_1,min_minutes_security,include_doubtful,historical_baselines,team_form,7,h2h_lookup)
+            c2=build_replacement_candidates(r2,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,search_bank_2,min_minutes_security,include_doubtful,historical_baselines,team_form,7,h2h_lookup)
             for x in c1:
                 for y in c2:
                     if x["id"]==y["id"] or x["Cost"]+y["Cost"]>funds+.001: continue
@@ -1713,27 +1892,30 @@ elif page=="Planner":
     for ev in range(upcoming_event["id"],min(39,upcoming_event["id"]+5)):
         vals=[]
         for r in squad_rows:
-            p=players_by_id[r["id"]]; us=match_understat(p,by_full,by_last); vals.append((event_projection(p,ev,fixtures,teams_by_id,us,historical_baselines,team_form),r))
+            p=players_by_id[r["id"]]; us=match_understat(p,by_full,by_last); vals.append((event_projection(p,ev,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup),r))
         weak=min(vals,key=lambda x:x[0]) if vals else (0,None); action="REVIEW" if weak[1] and weak[0]<2.2 else "ROLL"; focus=f"{weak[1]['Player']} projects {weak[0]:.1f}" if action=="REVIEW" else "Bank flexibility"; roadmap.append({"GW":ev,"FT entering":sim_ft,"Action":action,"Focus":focus}); sim_ft=min(5,sim_ft+1) if action=="ROLL" else sim_ft
     st.markdown("### 3–5 Gameweek roadmap"); st.caption("A Gameweek-by-Gameweek simulation of whether to ROLL a transfer or REVIEW a squad player, based on projected points a few weeks out.")
     dataframe_with_help(pd.DataFrame(roadmap),use_container_width=True,hide_index=True); st.caption("Roadmap freezes today's prices and player information; rerun after each deadline.")
 
 elif page=="Squad":
     st.markdown("## Squad intelligence"); st.caption(PAGE_HELP["Squad"]+" Hover any column header for what it measures.")
-    cols=["Pos","Player","Team","Price","Sell price","Form","Status","Proj GW1","Proj 3","Proj 5","xGI/90","Fixture score","Fixture swing","Minutes","Rotation","Bonus","DC","Captaincy","Own %","EO proxy","Market","Advisor score","Flags"]; dataframe_with_help(squad_df[cols],use_container_width=True,hide_index=True)
+    cols=["Pos","Player","Team","Price","Sell price","Form","Status","Proj GW1","Proj 3","Proj 5","xGI/90","xG Δ/90","Regression note","Fixture score","Fixture swing","Next opp H2H","Minutes","Rotation","Bonus","DC","Captaincy","Own %","EO proxy","Market","Advisor score","Flags"]; dataframe_with_help(squad_df[cols],use_container_width=True,hide_index=True)
 
 elif page=="Player Lab":
-    st.markdown("## Player Lab"); st.caption(PAGE_HELP["Player Lab"]); all_names=sorted([p["web_name"] for p in bootstrap["elements"]]); selected=st.selectbox("Search player",all_names); target=next(p for p in bootstrap["elements"] if p["web_name"]==selected); us=match_understat(target,by_full,by_last); comps=player_fpl_components(target,fixtures,teams_by_id,upcoming_event["id"],n_fixtures,us); p1,_=projected_horizon(target,upcoming_event["id"],1,fixtures,teams_by_id,us,historical_baselines,team_form); p3,_=projected_horizon(target,upcoming_event["id"],3,fixtures,teams_by_id,us,historical_baselines,team_form); p5,_=projected_horizon(target,upcoming_event["id"],5,fixtures,teams_by_id,us,historical_baselines,team_form)
+    st.markdown("## Player Lab"); st.caption(PAGE_HELP["Player Lab"]); all_names=sorted([p["web_name"] for p in bootstrap["elements"]]); selected=st.selectbox("Search player",all_names); target=next(p for p in bootstrap["elements"] if p["web_name"]==selected); us=match_understat(target,by_full,by_last); comps=player_fpl_components(target,fixtures,teams_by_id,upcoming_event["id"],n_fixtures,us); p1,_=projected_horizon(target,upcoming_event["id"],1,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup); p3,_=projected_horizon(target,upcoming_event["id"],3,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup); p5,_=projected_horizon(target,upcoming_event["id"],5,fixtures,teams_by_id,us,historical_baselines,team_form,h2h_lookup); perf=xg_performance(target,us); own_short=teams_by_id[target["team"]]["short_name"]
     a,b,c,d=st.columns(4)
     metric_help={"GW projection":COLUMN_HELP["Proj GW1"],"Next 3":COLUMN_HELP["Proj 3"],"Next 5":COLUMN_HELP["Proj 5"],"xGI/90":COLUMN_HELP["xGI/90"]}
     for col,label,val in [(a,"GW projection",p1),(b,"Next 3",p3),(c,"Next 5",p5),(d,"xGI/90",f"{comps['xgi90']:.2f}")]:
         with col: st.metric(label,val,help=metric_help[label])
+    e,f=st.columns(2)
+    with e: st.metric("xG performance",f"{perf['attack_delta90']:+.2f}/90",perf["label"],delta_color="inverse",help=COLUMN_HELP["xG Δ/90"])
+    with f: st.metric("Next opponent H2H",h2h_summary(own_short,fixture_details(target["team"],fixtures,upcoming_event["id"],n=1),h2h_lookup),help=COLUMN_HELP["Next opp H2H"])
     st.caption("Side-by-side comparison of the searched player against one of your own squad members, row by row (hover the **Metric** column header for what each row means).")
-    compare=st.selectbox("Compare with your player",squad_df["Player"].tolist()); cr=squad_df[squad_df["Player"]==compare].iloc[0]; comp=pd.DataFrame({"Metric":["Price","GW projection","Next 3","Next 5","xGI/90","Minutes","Captaincy","Ownership %"],compare:[cr["Price"],cr["Proj GW1"],cr["Proj 3"],cr["Proj 5"],cr["xGI/90"],cr["Minutes"],cr["Captaincy"],cr["Own %"]],selected:[safe_float(target.get("now_cost"),0)/10,p1,p3,p5,comps["xgi90"],minutes_security_score(target),comps["captaincy"],safe_float(target.get("selected_by_percent"),0)]}); dataframe_with_help(comp,use_container_width=True,hide_index=True)
+    compare=st.selectbox("Compare with your player",squad_df["Player"].tolist()); cr=squad_df[squad_df["Player"]==compare].iloc[0]; comp=pd.DataFrame({"Metric":["Price","GW projection","Next 3","Next 5","xGI/90","xG Δ/90","Minutes","Captaincy","Ownership %"],compare:[cr["Price"],cr["Proj GW1"],cr["Proj 3"],cr["Proj 5"],cr["xGI/90"],cr["xG Δ/90"],cr["Minutes"],cr["Captaincy"],cr["Own %"]],selected:[safe_float(target.get("now_cost"),0)/10,p1,p3,p5,comps["xgi90"],perf["attack_delta90"],minutes_security_score(target),comps["captaincy"],safe_float(target.get("selected_by_percent"),0)]}); dataframe_with_help(comp,use_container_width=True,hide_index=True)
     st.markdown("### Scenario mode"); st.caption("'What if I sell…' shows replacement options for a chosen squad player. 'How do I get…' shows what it would cost to fund a specific target from your current squad.")
     scenario=st.radio("Scenario",["What if I sell…","How do I get…"],horizontal=True,label_visibility="collapsed")
     if scenario=="What if I sell…":
-        who=st.selectbox("Sell",squad_df["Player"].tolist(),key="sellscenario"); rr=squad_df[squad_df["Player"]==who].iloc[0]; cc=build_replacement_candidates(rr,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,bank,min_minutes_security,include_doubtful,historical_baselines,team_form,8)
+        who=st.selectbox("Sell",squad_df["Player"].tolist(),key="sellscenario"); rr=squad_df[squad_df["Player"]==who].iloc[0]; cc=build_replacement_candidates(rr,bootstrap,squad_df,players_by_id,teams_by_id,fixtures,upcoming_event["id"],by_full,by_last,total_players_in_game,strategy,risk_appetite,n_fixtures,reserve_bank,bank,min_minutes_security,include_doubtful,historical_baselines,team_form,8,h2h_lookup)
         if cc: dataframe_with_help(pd.DataFrame(cc)[["Player","Team","Cost","Proj 3","Proj 5","Upgrade"]],use_container_width=True,hide_index=True)
     else:
         wanted=st.selectbox("Target player",all_names,key="wanted"); wp=next(p for p in bootstrap["elements"] if p["web_name"]==wanted); needed=safe_float(wp.get("now_cost"),0)/10; compatible=squad_df[squad_df["Pos"]==POSITION_MAP[wp["element_type"]]].copy(); compatible["Funding gap"]=needed-(compatible["Sell price"]+bank-reserve_bank); st.write(f"Target price: **£{needed:.1f}m**"); dataframe_with_help(compatible[["Player","Sell price","Proj 5","Funding gap"]].sort_values("Funding gap"),use_container_width=True,hide_index=True); st.caption("Positive funding gap means an enabling move is needed elsewhere; use the two-transfer optimiser.")
@@ -1749,6 +1931,16 @@ elif page=="Analytics":
     st.markdown("## Analytics"); st.caption(PAGE_HELP["Analytics"])
     st.markdown("### Fixture swings"); st.caption("Your squad ranked by near-term fixture favourability — the players whose upcoming run looks toughest or friendliest.")
     dataframe_with_help(squad_df[["Player","Pos","Team","Fixture score","Fixture swing","Proj 3","Proj 5"]].sort_values("Fixture score",ascending=False),use_container_width=True,hide_index=True)
+    st.markdown("### xG performance — buy-low / regression risk"); st.caption("Who's running hot or cold vs their underlying numbers. Negative xG Δ/90 = creating chances or limiting shots without the goals/points to show for it yet (buy-low); positive = returns currently ahead of the process (regression risk).")
+    dataframe_with_help(squad_df[["Player","Pos","Team","xG Δ/90","Regression note","Advisor score"]].sort_values("xG Δ/90"),use_container_width=True,hide_index=True)
+    st.markdown("### Head-to-head history"); h2h_seasons=h2h_bundle.get("seasons",[])
+    if h2h_seasons:
+        st.caption(f"Each squad player's team record against their next opponent, from {len(h2h_seasons)} completed season(s): {', '.join(str(s)+'/'+str(s+1)[-2:] for s in sorted(h2h_seasons,reverse=True))}. Feeds a small, bounded nudge into the point projections above — it never overrides fixtures or form, and needs at least 2 prior meetings before it applies anything.")
+        dataframe_with_help(squad_df[["Player","Pos","Team","Next opp H2H","Fixtures","Proj 3"]],use_container_width=True,hide_index=True)
+    elif not football_data_key:
+        st.info("Head-to-head history needs the same optional football-data.org token as team form (add `FOOTBALL_DATA_API_KEY` in Streamlit Secrets). Without it, this section — and the head-to-head nudge inside projections — simply stays inactive.")
+    else:
+        st.caption("No completed-season head-to-head data could be loaded yet (free-tier history depth or rate limits vary) — projections are running without the head-to-head adjustment for now.")
     st.markdown("### Market & rank-risk"); st.caption("How owned and 'in-play' each of your players is right now — useful for judging how much overall-rank risk you're carrying.")
     dataframe_with_help(squad_df[["Player","Own %","EO proxy","Market","Market %","Captaincy","Rotation","News"]].sort_values("Market %",ascending=False),use_container_width=True,hide_index=True)
     if team_form:
