@@ -414,7 +414,13 @@ def get_understat_players(season_start_year):
         return {}
     match = re.search(r"playersData\s*=\s*JSON\.parse\('(.+?)'\)", r.text)
     if not match:
-        print(f"[FPL Advisor understat] 'playersData' not found in page for {url} - "
+        # Don't just give up - scan for whatever JSON.parse'd variables the page DOES
+        # have right now, so the next log tells us the real new name instead of us
+        # guessing blind. Understat's own robots.txt blocks automated fetches of this
+        # page, so this print statement is the only way to see what's actually there.
+        found_vars = re.findall(r"(\w+)\s*=\s*JSON\.parse\(", r.text)
+        print(f"[FPL Advisor understat] 'playersData' not found in page for {url}. "
+              f"JSON.parse'd variables actually present: {found_vars or 'none found'} - "
               f"either the season isn't populated yet on Understat, or their page markup changed.")
         return {}
     try:
@@ -1110,7 +1116,7 @@ def get_h2h_seasons_bundle(api_key, season_start_year, n_seasons=3):
         return {"matches": [], "status": "not_configured", "seasons": []}
     all_matches, seasons_fetched = [], []
     for offset in range(1, n_seasons + 1):
-        yr = season_start_year - offset
+        yr = int(season_start_year) - offset
         try:
             response = requests.get(
                 f"{FOOTBALL_DATA_BASE}/competitions/PL/matches",
